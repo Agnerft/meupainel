@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mega App | Disparo ADS</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260720-2138" />
+    <link rel="stylesheet" href="/styles.css?v=20260720-2132" />
+  </head>
+  <body>
+    <main class="appShell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brandMark">M</div>
+          <div>
+            <strong>Mega App</strong>
+            <span>Disparo ADS</span>
+          </div>
+        </div>
+        <nav>
+          <a class="navItem active" href="#ads"><span>01</span>Campanhas</a>
+          <a class="navItem" href="#messages"><span>02</span>Mensagens</a>
+          <a class="navItem" href="#ia"><span>03</span>Teste da IA</a>
+          <a class="navItem" href="/connect-whatsapp"><span>04</span>WhatsApp</a>
+        </nav>
+        <section class="authPanel" id="authPanel">
+          <label for="adminToken">Token admin</label>
+          <div class="tokenRow">
+            <input id="adminToken" type="password" placeholder="Cole o token" autocomplete="off" />
+            <button id="saveTokenButton">Entrar</button>
+          </div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow">Operacao comercial</div>
+            <h1>Painel de disparo ADS</h1>
+            <p>Campanhas, grupos, fila de envio e respostas da IA em um painel unico.</p>
+          </div>
+          <div class="topActions">
+            <label class="primaryLink" for="adsFile">Importar ADS</label>
+            <input id="adsFile" type="file" accept=".txt,.csv,.json,.xlsx,.xls,text/plain,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+            <a class="secondaryLink" href="/connect-whatsapp">WhatsApp</a>
+            <button id="themeToggle" class="smallButton" title="Alternar tema">Tema</button>
+            <button id="refreshButton" class="smallButton" title="Atualizar">Atualizar</button>
+          </div>
+        </header>
+
+        <section class="metrics" aria-label="Metricas">
+          <article>
+            <span>Mensagens</span>
+            <strong id="metricTotal">0</strong>
+            <small>total monitorado</small>
+          </article>
+          <article>
+            <span>Entradas</span>
+            <strong id="metricInbound">0</strong>
+            <small>recebidas no painel</small>
+          </article>
+          <article>
+            <span>Saidas</span>
+            <strong id="metricOutbound">0</strong>
+            <small>enviadas pelo bot</small>
+          </article>
+          <article>
+            <span>Contatos</span>
+            <strong id="metricContacts">0</strong>
+            <small>conversas unicas</small>
+          </article>
+        </section>
+
+        <section class="statusStrip" id="statusStrip" aria-label="Status dos servicos"></section>
+
+        <section class="adsPanel" id="ads">
+          <div class="panelHeader">
+            <div>
+              <span class="sectionKicker">Disparo em massa</span>
+              <h2>Campanhas para disparo</h2>
+              <p id="adsStatus">Importe a planilha ou cole os lancamentos.</p>
+            </div>
+            <div class="adsActions">
+              <button id="adsPreviewButton">Gerar previa</button>
+              <button id="adsSendButton" disabled>Enviar selecionados</button>
+            </div>
+          </div>
+
+          <div class="adsGrid">
+            <section class="inputPanel">
+              <div class="fieldBlock">
+                <label for="adsPixDefault">Pix padrao</label>
+                <div class="savedFieldRow">
+                  <input id="adsPixDefault" type="text" placeholder="Chave Pix usada nos lancamentos" />
+                  <button id="savePixButton" type="button">Salvar</button>
+                </div>
+              </div>
+              <div class="fieldBlock grow">
+                <label for="adsText">Lancamentos</label>
+                <textarea id="adsText" rows="12" placeholder="ADS13 - IGOR (1755)&#10;Data: 2026-07-18&#10;Valor: US$ 67,86&#10;Nome: -&#10;Pix: -"></textarea>
+              </div>
+            </section>
+
+            <section class="previewPanel">
+              <div class="previewToolbar">
+                <div class="groupTools">
+                  <label for="adsGroupFilter">Filtrar grupos</label>
+                  <div class="groupSearchRow">
+                    <input id="adsGroupFilter" type="text" placeholder="ADS, IGOR, KRONE..." value="ADS" />
+                    <button id="adsGroupSearchButton">Buscar</button>
+                  </div>
+                </div>
+                <div class="groupTools">
+                  <label for="adsGroupSelect">Grupo principal</label>
+                  <select id="adsGroupSelect"></select>
+                </div>
+              </div>
+              <label>Mensagem</label>
+              <pre id="adsPreviewBox">A previa aparece aqui.</pre>
+            </section>
+          </div>
+
+          <section class="batchPanel">
+            <div class="panelHeader compact">
+              <div>
+                <span class="sectionKicker">Revisao</span>
+                <h2>Fila de envio</h2>
+                <p>Confira cada campanha antes de disparar em massa.</p>
+              </div>
+            </div>
+            <div class="adsBatchList" id="adsBatchList"></div>
+          </section>
+        </section>
+
+        <section class="workArea">
+          <div class="panel" id="messages">
+            <div class="panelHeader">
+              <div>
+                <span class="sectionKicker">Historico</span>
+                <h2>Mensagens recentes</h2>
+                <p id="lastUpdate">Aguardando dados</p>
+              </div>
+            </div>
+            <div class="messageList" id="messageList"></div>
+          </div>
+
+          <div class="panel testPanel" id="ia">
+            <div class="panelHeader">
+              <div>
+                <span class="sectionKicker">Simulador</span>
+                <h2>Teste da IA</h2>
+                <p>Simule uma resposta antes de automatizar.</p>
+              </div>
+            </div>
+            <textarea id="testText" rows="5" placeholder="Digite uma mensagem de cliente para testar a resposta..."></textarea>
+            <button id="testButton">Gerar resposta</button>
+            <div class="replyBox" id="replyBox">A resposta aparece aqui.</div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js?v=20260720-2132"></script>
+  </body>
+</html>
