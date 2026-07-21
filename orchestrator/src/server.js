@@ -702,9 +702,9 @@ async function parseAdsWorkbook(buffer, options = {}) {
     grouped.set(key, current);
   }
 
-  const entries = [...grouped.values()]
-    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR", { numeric: true }))
-    .map((item) => [
+  const sortedEntries = [...grouped.values()]
+    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR", { numeric: true }));
+  const entries = interleaveHalves(sortedEntries).map((item) => [
       item.label,
       `Data: ${item.date || getTheBestDate()}`,
       `Valor: ${item.currency === "USD" ? "US$" : "R$"} ${formatDecimal(item.value)}`,
@@ -723,6 +723,20 @@ async function parseAdsWorkbook(buffer, options = {}) {
     exchangeUpdatedAt: exchange?.updatedAt || null,
     exchangeSource: exchange?.source || null,
   };
+}
+
+function interleaveHalves(items) {
+  const midpoint = Math.ceil(items.length / 2);
+  const firstHalf = items.slice(0, midpoint);
+  const secondHalf = items.slice(midpoint);
+  const result = [];
+
+  for (let index = 0; index < midpoint; index += 1) {
+    if (firstHalf[index]) result.push(firstHalf[index]);
+    if (secondHalf[index]) result.push(secondHalf[index]);
+  }
+
+  return result;
 }
 
 function parsePixDetails(value) {
