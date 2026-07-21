@@ -497,6 +497,7 @@ function parseAdsInput(rawInput) {
 
   const first = lines[0] || "";
   const valueLine = lines.find((line) => /^valor\s*:/i.test(line)) || "";
+  const dateLine = lines.find((line) => /^data\s*:/i.test(line)) || "";
   const nameLine = lines.find((line) => /^nome\s*:/i.test(line)) || "";
   const pixLine = lines.find((line) => /^pix\s*:/i.test(line)) || "";
   const currency = /\bUS\$|\bUSD/i.test(valueLine) ? "USD" : "BRL";
@@ -509,6 +510,7 @@ function parseAdsInput(rawInput) {
 
   return {
     label,
+    date: normalizeDateCell(dateLine.replace(/^data\s*:\s*/i, "")),
     rawValue,
     currency,
     taxRate: config.adsTaxRate,
@@ -599,7 +601,8 @@ function buildJrAdsMessage(jrItems, date) {
   const totalRaw = sumCurrencyValues(jrItems.map((item) => item.parsed.rawValue));
   const totalTaxed = roundCurrencyUp(totalRaw * (1 + config.adsTaxRate / 100));
   const currency = jrItems[0]?.parsed?.currency || "BRL";
-  const lines = [`JR - ${formatShortDate(date)}`, ""];
+  const label = `JR - ${formatShortDate(date)}`;
+  const lines = [buildAdsIntro(label, date), "", label, ""];
 
   for (const item of jrItems) {
     lines.push(
@@ -972,6 +975,8 @@ function formatMoney(value, currency = "BRL") {
 
 function buildAdsMessage(parsed, theBest = null) {
   const lines = [
+    buildAdsIntro(parsed.label, parsed.date),
+    "",
     parsed.label,
     `Valor: ${formatMoney(parsed.rawValue, parsed.currency)}`,
     `Com imposto (${parsed.taxRate.toFixed(2).replace(".", ",")}%): ${formatMoney(parsed.taxedValue, parsed.currency)}`,
@@ -989,6 +994,41 @@ function buildAdsMessage(parsed, theBest = null) {
   }
 
   return lines.join("\n");
+}
+
+function buildAdsIntro(label, date) {
+  const greeting = getTurnGreeting();
+  const dayText = formatAdsIntroDate(date);
+  const variants = [
+    `${greeting}, tudo bem? Segue o ADS do dia ${dayText}.`,
+    `${greeting}! Tudo certo? Estou enviando o ADS do dia ${dayText}.`,
+    `${greeting}, beleza? Segue o ADS referente ao dia ${dayText}.`,
+    `${greeting}! Passando aqui o ADS do dia ${dayText}.`,
+    `${greeting}, tudo bem por ai? Segue o ADS de ${dayText}.`,
+  ];
+  return variants[pickStableIndex(`${label}|${date || getTheBestDate()}|${getTheBestDate()}`, variants.length)];
+}
+
+function getTurnGreeting(now = new Date()) {
+  const hour = now.getHours();
+  if (hour < 5) return "Boa madrugada";
+  if (hour < 12) return "Bom dia";
+  if (hour < 18) return "Boa tarde";
+  return "Boa noite";
+}
+
+function formatAdsIntroDate(date) {
+  const normalized = normalizeDateCell(date) || getTheBestDate();
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}` : normalized;
+}
+
+function pickStableIndex(seed, length) {
+  let hash = 0;
+  for (const char of String(seed || "")) {
+    hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+  }
+  return Math.abs(hash) % Math.max(length, 1);
 }
 
 function findBestAdsGroup(label, groups) {
