@@ -42,6 +42,36 @@ UI_ADMIN_TOKEN
 docker compose up -d --build
 ```
 
+## Deploy automatico pelo GitHub
+
+O repositorio tem um GitHub Actions em `.github/workflows/deploy.yml`.
+Depois de configurar os secrets abaixo no GitHub, todo push na branch `main`
+entra na VPS por SSH, atualiza o codigo e roda:
+
+```bash
+bash scripts/deploy-vps.sh
+```
+
+Secrets necessarios em `Settings > Secrets and variables > Actions`:
+
+```text
+VPS_HOST=IP-ou-dominio-da-VPS
+VPS_USER=usuario-ssh
+VPS_SSH_KEY=chave-privada-ssh
+VPS_PORT=22
+VPS_APP_DIR=/opt/vps-whatsapp-stack
+```
+
+Na primeira vez, deixe a pasta da VPS como clone deste repositorio:
+
+```bash
+git clone https://github.com/Agnerft/meupainel.git /opt/vps-whatsapp-stack
+cd /opt/vps-whatsapp-stack
+cp .env.example .env
+nano .env
+docker compose up -d --build
+```
+
 6. Se a VPS nao tiver Nginx rodando no host, abra o Nginx Proxy Manager:
 
 ```text
