@@ -29,9 +29,16 @@ const sendProgressRemaining = document.querySelector("#sendProgressRemaining");
 const sendProgressTotal = document.querySelector("#sendProgressTotal");
 const sendProgressCurrent = document.querySelector("#sendProgressCurrent");
 const sendProgressClose = document.querySelector("#sendProgressClose");
+const reviewOverlay = document.querySelector("#reviewOverlay");
+const reviewStats = document.querySelector("#reviewStats");
+const reviewWarnings = document.querySelector("#reviewWarnings");
+const reviewTotals = document.querySelector("#reviewTotals");
+const reviewConfirmButton = document.querySelector("#reviewConfirmButton");
+const reviewCancelButton = document.querySelector("#reviewCancelButton");
 const navItems = [...document.querySelectorAll(".navItem[href^='#']")];
 
 let adsPreview = null;
+let pendingReviewResolve = null;
 
 const metrics = {
   total: document.querySelector("#metricTotal"),
@@ -62,6 +69,8 @@ savePixButton.addEventListener("click", savePixDefault);
 sendProgressClose.addEventListener("click", () => {
   sendProgressOverlay.hidden = true;
 });
+reviewCancelButton.addEventListener("click", () => resolveReview(false));
+reviewConfirmButton.addEventListener("click", () => resolveReview(true));
 adsPixDefault.addEventListener("input", () => {
   localStorage.setItem("adsPixDefault", adsPixDefault.value.trim());
 });
@@ -347,8 +356,10 @@ async function sendAds() {
     return;
   }
 
-  const total = entries.length ? selectedEntries.length : 1;
-  const confirmed = window.confirm(`Enviar ${total} lancamento(s) ADS para os grupos selecionados?`);
+  const payloadEntries = entries.length
+    ? entries
+    : [{ groupJid: selected.value, groupName: selected.text.replace(/\s+\(\d+\)$/, "") }];
+  const confirmed = await showSendReview(payloadEntries);
   if (!confirmed) return;
 
   adsSendButton.disabled = true;
@@ -357,9 +368,7 @@ async function sendAds() {
   try {
     const payload = {
       text,
-      entries: entries.length
-        ? entries
-        : [{ groupJid: selected.value, groupName: selected.text.replace(/\s+\(\d+\)$/, "") }],
+      entries: payloadEntries,
     };
     const result = await sendAdsWithProgress(payload);
     adsStatus.textContent = "Enviado";
@@ -380,6 +389,115 @@ async function sendAds() {
   } finally {
     adsSendButton.disabled = false;
   }
+}
+
+function showSendReview(payloadEntries) {
+  const summary = buildSendReviewSummary(payloadEntries);
+  renderSendReview(summary);
+  reviewOverlay.hidden = false;
+
+  return new Promise((resolve) => {
+    pendingReviewResolve = resolve;
+  });
+}
+
+function resolveReview(value) {
+  reviewOverlay.hidden = true;
+  if (pendingReviewResolve) pendingReviewResolve(value);
+  pendingReviewResolve = null;
+}
+
+function buildSendReviewSummary(payloadEntries) {
+  const previewEntries = adsPreview?.entries || [];
+  const selected = payloadEntries
+    .map((entry, index) => ({ override: entry, preview: previewEntries[index] }))
+    .filter((item) => !item.override?.skip);
+  const campaignItems = [];
+
+  for (const item of selected) {
+    const parsed = item.preview?.parsed || {};
+    if (Array.isArray(item.preview?.items) && item.preview.items.length) {
+      for (const child of item.preview.items) {
+        campaignItems.push({ parsed: child, parent: parsed, theBest: child.theBest || null });
+      }
+    } else {
+      campaignItems.push({ parsed, parent: null, theBest: item.preview?.theBest || null });
+    }
+  }
+
+  const totalRaw = campaignItems.reduce((sum, item) => sum + Number(item.parsed.rawValue || 0), 0);
+  const totalTaxed = campaignItems.reduce((sum, item) => sum + Number(item.parsed.taxedValue || 0), 0);
+  const jrGroups = selected.filter((item) => Array.isArray(item.preview?.items) && item.preview.items.length).length;
+  const zeroValue = campaignItems.filter((item) => Number(item.parsed.rawValue || 0) <= 0);
+  const missingGroups = selected.filter((item) => !item.override?.groupJid);
+  const missingTheBest = campaignItems.filter((item) => !item.theBest?.login);
+
+  return {
+    selected,
+    campaignItems,
+    totalRaw,
+    totalTaxed,
+    sendCount: selected.length,
+    campaignCount: campaignItems.length,
+    jrGroups,
+    zeroValue,
+    missingGroups,
+    missingTheBest,
+  };
+}
+
+function renderSendReview(summary) {
+  reviewStats.innerHTML = [
+    renderReviewStat("Envios", summary.sendCount),
+    renderReviewStat("Campanhas", summary.campaignCount),
+    renderReviewStat("JR", summary.jrGroups),
+    renderReviewStat("Sem grupo", summary.missingGroups.length),
+    renderReviewStat("Sem The Best", summary.missingTheBest.length),
+    renderReviewStat("Valor zerado", summary.zeroValue.length),
+  ].join("");
+
+  reviewTotals.innerHTML = `
+    <article>
+      <span>Total bruto</span>
+      <strong>${formatCurrency(summary.totalRaw)}</strong>
+    </article>
+    <article>
+      <span>Total com imposto</span>
+      <strong>${formatCurrency(summary.totalTaxed)}</strong>
+    </article>
+  `;
+
+  const warnings = [];
+  if (summary.missingGroups.length) {
+    warnings.push(`Sem grupo: ${summary.missingGroups.map((item) => item.preview?.parsed?.label || "ADS").join(", ")}`);
+  }
+  if (summary.missingTheBest.length) {
+    warnings.push(`Sem The Best: ${summary.missingTheBest.map((item) => item.parsed.label || "ADS").join(", ")}`);
+  }
+  if (summary.zeroValue.length) {
+    warnings.push(`Valor zerado: ${summary.zeroValue.map((item) => item.parsed.label || "ADS").join(", ")}`);
+  }
+
+  reviewWarnings.innerHTML = warnings.length
+    ? warnings.map((warning) => `<p>${escapeHtml(warning)}</p>`).join("")
+    : "<p>Tudo pronto para enviar.</p>";
+  reviewConfirmButton.disabled = summary.sendCount <= 0 || summary.missingGroups.length > 0 || summary.zeroValue.length > 0;
+}
+
+function renderReviewStat(label, value) {
+  return `
+    <article>
+      <span>${escapeHtml(label)}</span>
+      <strong>${Number(value || 0).toLocaleString("pt-BR")}</strong>
+    </article>
+  `;
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(Number(value || 0));
 }
 
 async function sendAdsWithProgress(payload) {

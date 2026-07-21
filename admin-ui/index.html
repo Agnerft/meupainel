@@ -160,6 +160,24 @@
       </section>
     </main>
 
+    <div class="reviewOverlay" id="reviewOverlay" hidden>
+      <section class="reviewDialog" role="dialog" aria-modal="true" aria-labelledby="reviewTitle">
+        <div class="reviewHeader">
+          <div>
+            <span class="sectionKicker">Conferencia obrigatoria</span>
+            <h2 id="reviewTitle">Resumo antes do envio</h2>
+          </div>
+          <button class="smallButton" id="reviewCancelButton" type="button">Cancelar</button>
+        </div>
+        <div class="reviewStats" id="reviewStats"></div>
+        <div class="reviewWarnings" id="reviewWarnings"></div>
+        <div class="reviewTotals" id="reviewTotals"></div>
+        <div class="reviewActions">
+          <button id="reviewConfirmButton" type="button">Confirmar e enviar</button>
+        </div>
+      </section>
+    </div>
+
     <div class="sendProgressOverlay" id="sendProgressOverlay" hidden>
       <section class="sendProgressDialog" role="status" aria-live="polite">
         <div class="sendProgressHeader">

@@ -690,7 +690,7 @@ function buildAdsPreviewEntries(rawInput, groups, mappings, statsMap) {
     match: findJuniorAdsGroup(groups),
     theBest: null,
     rawInput: jrItems.map((item) => item.rawInput).join("\n\n"),
-    items: jrItems.map((item) => item.parsed),
+    items: jrItems.map((item) => ({ ...item.parsed, theBest: item.theBest || null })),
   };
 
   return [jrEntry, ...normalEntries];

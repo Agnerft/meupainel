@@ -674,6 +674,7 @@ pre {
   overflow-wrap: anywhere;
 }
 
+.reviewOverlay,
 .sendProgressOverlay {
   position: fixed;
   inset: 0;
@@ -684,10 +685,12 @@ pre {
   background: rgba(8, 12, 12, 0.64);
 }
 
+.reviewOverlay[hidden],
 .sendProgressOverlay[hidden] {
   display: none;
 }
 
+.reviewDialog,
 .sendProgressDialog {
   width: min(94vw, 560px);
   border: 1px solid var(--line);
@@ -697,6 +700,11 @@ pre {
   box-shadow: 0 30px 80px rgba(8, 12, 12, 0.34);
 }
 
+.reviewDialog {
+  width: min(94vw, 780px);
+}
+
+.reviewHeader,
 .sendProgressHeader {
   display: flex;
   justify-content: space-between;
@@ -704,9 +712,72 @@ pre {
   align-items: flex-start;
 }
 
+.reviewHeader h2,
 .sendProgressHeader h2 {
   margin-top: 6px;
   font-size: 22px;
+}
+
+.reviewStats,
+.reviewTotals {
+  display: grid;
+  gap: 10px;
+}
+
+.reviewStats {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.reviewTotals {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.reviewStats article,
+.reviewTotals article {
+  min-height: 86px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+}
+
+.reviewStats span,
+.reviewTotals span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.reviewStats strong,
+.reviewTotals strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 24px;
+}
+
+.reviewWarnings {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.reviewWarnings p {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.reviewActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
 }
 
 #sendProgressPercent {
@@ -771,6 +842,10 @@ pre {
 }
 
 @media (max-width: 1240px) {
+  .reviewStats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
   .adsBatchList,
   .workArea {
     grid-template-columns: 1fr;
@@ -858,6 +933,13 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .reviewHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .reviewStats,
+  .reviewTotals,
   .sendProgressStats {
     grid-template-columns: 1fr;
   }
