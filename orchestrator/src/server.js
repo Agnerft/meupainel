@@ -544,14 +544,14 @@ function buildAdsPreviewEntries(rawInput, groups, mappings, statsMap) {
 
   for (const rawEntry of parseAdsEntries(rawInput)) {
     const parsed = parseAdsInput(rawEntry);
+    const mapping = findAdsMapping(parsed.label, mappings);
+    const theBest = buildTheBestSummary(mapping, statsMap);
     if (isJrCampaign(parsed.label)) {
-      jrItems.push({ parsed, rawInput: rawEntry });
+      jrItems.push({ parsed, rawInput: rawEntry, theBest });
       continue;
     }
 
     const match = findBestAdsGroup(parsed.label, groups);
-    const mapping = findAdsMapping(parsed.label, mappings);
-    const theBest = buildTheBestSummary(mapping, statsMap);
     normalEntries.push({
       parsed,
       message: buildAdsMessage(parsed, theBest),
@@ -611,8 +611,9 @@ function buildJrAdsMessage(jrItems, date) {
       `Com imposto (${item.parsed.taxRate.toFixed(2).replace(".", ",")}%): ${formatMoney(item.parsed.taxedValue, item.parsed.currency)}`,
       `Nome: ${item.parsed.customerName || "-"}`,
       `Pix: ${item.parsed.pix || "-"}`,
-      "",
     );
+    pushTheBestLines(lines, item.theBest);
+    lines.push("");
   }
 
   lines.push(`Total JR (com imposto): ${formatMoney(totalTaxed, currency)}`);
@@ -985,15 +986,20 @@ function buildAdsMessage(parsed, theBest = null) {
   ];
 
   if (theBest?.login) {
-    lines.push(
-      "",
-      `The Best (${theBest.login}):`,
-      `Vendas: ${theBest.sales}`,
-      `Testes: ${theBest.tests}`,
-    );
+    lines.push("");
+    pushTheBestLines(lines, theBest);
   }
 
   return lines.join("\n");
+}
+
+function pushTheBestLines(lines, theBest) {
+  if (!theBest?.login) return;
+  lines.push(
+    `The Best (${theBest.login}):`,
+    `Vendas: ${theBest.sales}`,
+    `Testes: ${theBest.tests}`,
+  );
 }
 
 function buildAdsIntro(label, date) {
