@@ -22,6 +22,7 @@
           <a class="navItem" href="#messages"><span>02</span>Mensagens</a>
           <a class="navItem" href="#ia"><span>03</span>Teste da IA</a>
           <a class="navItem" href="/connect-whatsapp"><span>04</span>WhatsApp</a>
+          <a class="navItem" href="#dispatch-history"><span>05</span>Historico ADS</a>
         </nav>
         <section class="authPanel" id="authPanel">
           <label for="adminToken">Token admin</label>
@@ -129,6 +130,30 @@
               </div>
             </div>
             <div class="adsBatchList" id="adsBatchList"></div>
+          </section>
+
+          <section class="dispatchHistoryPanel" id="dispatch-history">
+            <div class="panelHeader compact">
+              <div>
+                <span class="sectionKicker">Historico ADS</span>
+                <h2>Ultimos disparos</h2>
+                <p>Filtre por data ou campanha e confira o que foi enviado.</p>
+              </div>
+            </div>
+            <div class="historyFilters">
+              <label>
+                Data
+                <input id="historyDateFilter" type="date" />
+              </label>
+              <label>
+                Campanha
+                <input id="historyCampaignFilter" type="text" placeholder="ADS13, IGOR, JR..." />
+              </label>
+              <button id="historyFilterButton" type="button">Filtrar</button>
+              <button id="historyClearButton" class="smallButton" type="button">Limpar</button>
+            </div>
+            <div class="historyTotals" id="historyTotals"></div>
+            <div class="dispatchList" id="dispatchList"></div>
           </section>
         </section>
 

@@ -17,6 +17,12 @@ const adsFile = document.querySelector("#adsFile");
 const adsBatchList = document.querySelector("#adsBatchList");
 const adsGroupFilter = document.querySelector("#adsGroupFilter");
 const adsGroupSearchButton = document.querySelector("#adsGroupSearchButton");
+const historyDateFilter = document.querySelector("#historyDateFilter");
+const historyCampaignFilter = document.querySelector("#historyCampaignFilter");
+const historyFilterButton = document.querySelector("#historyFilterButton");
+const historyClearButton = document.querySelector("#historyClearButton");
+const historyTotals = document.querySelector("#historyTotals");
+const dispatchList = document.querySelector("#dispatchList");
 const themeToggle = document.querySelector("#themeToggle");
 const adsPixDefault = document.querySelector("#adsPixDefault");
 const savePixButton = document.querySelector("#savePixButton");
@@ -39,6 +45,7 @@ const navItems = [...document.querySelectorAll(".navItem[href^='#']")];
 
 let adsPreview = null;
 let pendingReviewResolve = null;
+const dispatchMessages = new Map();
 
 const metrics = {
   total: document.querySelector("#metricTotal"),
@@ -64,6 +71,16 @@ adsGroupSearchButton.addEventListener("click", loadAdsGroups);
 adsGroupFilter.addEventListener("keydown", (event) => {
   if (event.key === "Enter") loadAdsGroups();
 });
+historyFilterButton.addEventListener("click", loadAdsHistory);
+historyClearButton.addEventListener("click", () => {
+  historyDateFilter.value = "";
+  historyCampaignFilter.value = "";
+  loadAdsHistory();
+});
+historyCampaignFilter.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") loadAdsHistory();
+});
+dispatchList.addEventListener("click", copyDispatchMessage);
 themeToggle.addEventListener("click", toggleTheme);
 savePixButton.addEventListener("click", savePixDefault);
 sendProgressClose.addEventListener("click", () => {
@@ -114,6 +131,7 @@ async function loadSummary() {
     renderMetrics(data.totals || {});
     renderServices(data.services || {});
     renderMessages(data.recentMessages || []);
+    loadAdsHistory();
     lastUpdate.textContent = new Date().toLocaleString("pt-BR");
   } catch (error) {
     lastUpdate.textContent = "Falha ao carregar";
@@ -204,6 +222,95 @@ function renderMessages(messages) {
       `;
     })
     .join("");
+}
+
+async function loadAdsHistory() {
+  const params = new URLSearchParams();
+  if (historyDateFilter.value) params.set("date", historyDateFilter.value);
+  if (historyCampaignFilter.value.trim()) params.set("campaign", historyCampaignFilter.value.trim());
+
+  try {
+    const data = await api(`ads/history?${params.toString()}`);
+    renderAdsHistory(data.dispatches || [], data.totals || {});
+  } catch (error) {
+    dispatchList.innerHTML = `
+      <article class="dispatchItem">
+        <div class="dispatchBody">
+          <strong>Falha ao carregar historico</strong>
+          <p>${escapeHtml(error.message)}</p>
+        </div>
+      </article>
+    `;
+  }
+}
+
+function renderAdsHistory(dispatches, totals) {
+  dispatchMessages.clear();
+  historyTotals.innerHTML = `
+    <article>
+      <span>Total enviado</span>
+      <strong>${Number(totals.total_sent || 0).toLocaleString("pt-BR")}</strong>
+    </article>
+    <article>
+      <span>Valor bruto</span>
+      <strong>${formatCurrency(totals.total_raw)}</strong>
+    </article>
+    <article>
+      <span>Com imposto</span>
+      <strong>${formatCurrency(totals.total_taxed)}</strong>
+    </article>
+  `;
+
+  if (!dispatches.length) {
+    dispatchList.innerHTML = `
+      <article class="dispatchItem">
+        <div class="dispatchBody">
+          <strong>Nenhum disparo encontrado</strong>
+          <p>Use outro filtro ou envie uma nova campanha.</p>
+        </div>
+      </article>
+    `;
+    return;
+  }
+
+  dispatchList.innerHTML = dispatches.map((item) => renderDispatchItem(item)).join("");
+}
+
+function renderDispatchItem(item) {
+  const sentAt = item.sent_at || item.created_at;
+  const date = sentAt ? new Date(sentAt).toLocaleString("pt-BR") : "";
+  dispatchMessages.set(String(item.id), item.message_body || "");
+  return `
+    <article class="dispatchItem">
+      <div class="dispatchMeta">
+        <span class="badge outbound">Enviado</span>
+        <span>${escapeHtml(date)}</span>
+        <span>${escapeHtml(item.group_name || item.group_jid || "Sem grupo")}</span>
+      </div>
+      <div class="dispatchBody">
+        <div class="dispatchTitle">
+          <strong>${escapeHtml(item.label || "ADS")}</strong>
+          <span>${formatCurrency(item.taxed_value)} com imposto</span>
+        </div>
+        <pre>${escapeHtml(item.message_body || "")}</pre>
+        <button class="smallButton copyDispatchButton" type="button" data-id="${escapeHtml(item.id)}">Copiar mensagem</button>
+      </div>
+    </article>
+  `;
+}
+
+async function copyDispatchMessage(event) {
+  const button = event.target.closest(".copyDispatchButton");
+  if (!button) return;
+
+  try {
+    await navigator.clipboard.writeText(dispatchMessages.get(button.dataset.id) || "");
+    button.textContent = "Copiado";
+    setTimeout(() => { button.textContent = "Copiar mensagem"; }, 1600);
+  } catch {
+    button.textContent = "Falha ao copiar";
+    setTimeout(() => { button.textContent = "Copiar mensagem"; }, 1600);
+  }
 }
 
 async function testReply() {

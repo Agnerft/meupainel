@@ -115,6 +115,46 @@ app.get("/admin/ads/groups", requireAdmin, async (req, res) => {
   res.json({ groups });
 });
 
+app.get("/admin/ads/history", requireAdmin, async (req, res) => {
+  const date = String(req.query.date || "").trim();
+  const campaign = String(req.query.campaign || "").trim();
+  const params = [];
+  const where = ["status = 'sent'"];
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    params.push(date);
+    where.push(`(created_at AT TIME ZONE 'America/Sao_Paulo')::date = $${params.length}::date`);
+  }
+  if (campaign) {
+    params.push(`%${campaign}%`);
+    where.push(`(label ILIKE $${params.length} OR group_name ILIKE $${params.length})`);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const [totals, rows] = await Promise.all([
+    db.query(
+      `SELECT
+         count(*)::int AS total_sent,
+         COALESCE(sum(raw_value), 0)::numeric(12,2) AS total_raw,
+         COALESCE(sum(taxed_value), 0)::numeric(12,2) AS total_taxed
+       FROM ads_dispatches
+       ${whereSql}`,
+      params,
+    ),
+    db.query(
+      `SELECT id, group_name, group_jid, label, raw_value, taxed_value, currency,
+              message_body, status, sent_at, created_at
+       FROM ads_dispatches
+       ${whereSql}
+       ORDER BY created_at DESC
+       LIMIT 80`,
+      params,
+    ),
+  ]);
+
+  res.json({ totals: totals.rows[0], dispatches: rows.rows });
+});
+
 app.post("/admin/ads/import-file", requireAdmin, async (req, res) => {
   try {
     const filename = String(req.body?.filename || "");
