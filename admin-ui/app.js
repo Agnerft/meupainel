@@ -20,6 +20,15 @@ const adsGroupSearchButton = document.querySelector("#adsGroupSearchButton");
 const themeToggle = document.querySelector("#themeToggle");
 const adsPixDefault = document.querySelector("#adsPixDefault");
 const savePixButton = document.querySelector("#savePixButton");
+const sendProgressOverlay = document.querySelector("#sendProgressOverlay");
+const sendProgressTitle = document.querySelector("#sendProgressTitle");
+const sendProgressPercent = document.querySelector("#sendProgressPercent");
+const sendProgressBarFill = document.querySelector("#sendProgressBarFill");
+const sendProgressSent = document.querySelector("#sendProgressSent");
+const sendProgressRemaining = document.querySelector("#sendProgressRemaining");
+const sendProgressTotal = document.querySelector("#sendProgressTotal");
+const sendProgressCurrent = document.querySelector("#sendProgressCurrent");
+const sendProgressClose = document.querySelector("#sendProgressClose");
 const navItems = [...document.querySelectorAll(".navItem[href^='#']")];
 
 let adsPreview = null;
@@ -50,6 +59,9 @@ adsGroupFilter.addEventListener("keydown", (event) => {
 });
 themeToggle.addEventListener("click", toggleTheme);
 savePixButton.addEventListener("click", savePixDefault);
+sendProgressClose.addEventListener("click", () => {
+  sendProgressOverlay.hidden = true;
+});
 adsPixDefault.addEventListener("input", () => {
   localStorage.setItem("adsPixDefault", adsPixDefault.value.trim());
 });
@@ -343,15 +355,13 @@ async function sendAds() {
   adsStatus.textContent = "Enviando...";
 
   try {
-    const result = await api("ads/send", {
-      method: "POST",
-      body: JSON.stringify({
-        text,
-        entries: entries.length
-          ? entries
-          : [{ groupJid: selected.value, groupName: selected.text.replace(/\s+\(\d+\)$/, "") }],
-      }),
-    });
+    const payload = {
+      text,
+      entries: entries.length
+        ? entries
+        : [{ groupJid: selected.value, groupName: selected.text.replace(/\s+\(\d+\)$/, "") }],
+    };
+    const result = await sendAdsWithProgress(payload);
     adsStatus.textContent = "Enviado";
     adsPreviewBox.textContent = `Enviado(s): ${result.sent?.length || 0}`;
     if (!result.sent?.length) {
@@ -369,6 +379,78 @@ async function sendAds() {
     adsPreviewBox.textContent = `Falha: ${hint}\n\n${adsPreviewBox.textContent}`;
   } finally {
     adsSendButton.disabled = false;
+  }
+}
+
+async function sendAdsWithProgress(payload) {
+  showSendProgress({
+    status: "queued",
+    total: payload.entries?.filter((entry) => !entry.skip).length || 1,
+    sentCount: 0,
+    remainingCount: payload.entries?.filter((entry) => !entry.skip).length || 1,
+    currentLabel: "",
+    currentGroup: "",
+  });
+
+  const started = await api("ads/send-jobs", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+  return new Promise((resolve, reject) => {
+    const token = encodeURIComponent(localStorage.getItem("uiAdminToken") || tokenInput.value.trim());
+    const events = new EventSource(`/api/ads/send-jobs/${encodeURIComponent(started.jobId)}/events?token=${token}`);
+    events.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      showSendProgress(data);
+      if (data.status === "done" || data.status === "partial") {
+        events.close();
+        resolve({ sent: data.sent || [], missing: data.missing || [] });
+      }
+      if (data.status === "failed") {
+        events.close();
+        reject(new Error(data.error || "Falha no envio"));
+      }
+    };
+    events.onerror = () => {
+      events.close();
+      reject(new Error("Falha ao acompanhar o progresso do envio"));
+    };
+  });
+}
+
+function showSendProgress(data) {
+  const total = Number(data.total || 0);
+  const sent = Number(data.sentCount || 0);
+  const remaining = Number(data.remainingCount ?? Math.max(total - sent, 0));
+  const percent = total > 0 ? Math.round((sent / total) * 100) : 0;
+  const statusText = {
+    queued: "Preparando envio",
+    running: "Enviando mensagens",
+    done: "Envio concluido",
+    partial: "Envio concluido com pendencias",
+    failed: "Falha no envio",
+  }[data.status] || "Enviando mensagens";
+
+  sendProgressOverlay.hidden = false;
+  sendProgressTitle.textContent = statusText;
+  sendProgressPercent.textContent = `${percent}%`;
+  sendProgressBarFill.style.width = `${percent}%`;
+  sendProgressSent.textContent = sent;
+  sendProgressRemaining.textContent = remaining;
+  sendProgressTotal.textContent = total;
+  sendProgressClose.hidden = !["done", "partial", "failed"].includes(data.status);
+
+  if (data.status === "failed") {
+    sendProgressCurrent.textContent = data.error || "Nao foi possivel concluir o envio.";
+  } else if (data.status === "done") {
+    sendProgressCurrent.textContent = "Todas as mensagens selecionadas foram enviadas.";
+  } else if (data.status === "partial") {
+    sendProgressCurrent.textContent = `${data.missingCount || 0} mensagem(ns) ficaram sem grupo encontrado.`;
+  } else if (data.currentLabel || data.currentGroup) {
+    sendProgressCurrent.textContent = `Atual: ${data.currentLabel || "-"} -> ${data.currentGroup || "-"}`;
+  } else {
+    sendProgressCurrent.textContent = "Preparando fila de envio...";
   }
 }
 

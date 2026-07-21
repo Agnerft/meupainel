@@ -674,6 +674,102 @@ pre {
   overflow-wrap: anywhere;
 }
 
+.sendProgressOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(8, 12, 12, 0.64);
+}
+
+.sendProgressOverlay[hidden] {
+  display: none;
+}
+
+.sendProgressDialog {
+  width: min(94vw, 560px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px;
+  background: var(--card);
+  box-shadow: 0 30px 80px rgba(8, 12, 12, 0.34);
+}
+
+.sendProgressHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.sendProgressHeader h2 {
+  margin-top: 6px;
+  font-size: 22px;
+}
+
+#sendProgressPercent {
+  color: var(--accent-dark);
+  font-size: 30px;
+  line-height: 1;
+}
+
+.sendProgressBar {
+  height: 12px;
+  margin: 18px 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--soft);
+}
+
+.sendProgressBar span {
+  display: block;
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--lime));
+  transition: width 220ms ease;
+}
+
+.sendProgressStats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.sendProgressStats article {
+  min-height: 86px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+}
+
+.sendProgressStats span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.sendProgressStats strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 30px;
+}
+
+#sendProgressCurrent {
+  min-height: 44px;
+  margin-top: 16px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+#sendProgressClose {
+  margin-top: 12px;
+}
+
 @media (max-width: 1240px) {
   .adsBatchList,
   .workArea {
@@ -759,6 +855,10 @@ pre {
   }
 
   .savedFieldRow {
+    grid-template-columns: 1fr;
+  }
+
+  .sendProgressStats {
     grid-template-columns: 1fr;
   }
 }

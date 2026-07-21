@@ -160,6 +160,37 @@
       </section>
     </main>
 
+    <div class="sendProgressOverlay" id="sendProgressOverlay" hidden>
+      <section class="sendProgressDialog" role="status" aria-live="polite">
+        <div class="sendProgressHeader">
+          <div>
+            <span class="sectionKicker">Disparo em andamento</span>
+            <h2 id="sendProgressTitle">Enviando mensagens</h2>
+          </div>
+          <strong id="sendProgressPercent">0%</strong>
+        </div>
+        <div class="sendProgressBar" aria-hidden="true">
+          <span id="sendProgressBarFill"></span>
+        </div>
+        <div class="sendProgressStats">
+          <article>
+            <span>Enviadas</span>
+            <strong id="sendProgressSent">0</strong>
+          </article>
+          <article>
+            <span>Faltam</span>
+            <strong id="sendProgressRemaining">0</strong>
+          </article>
+          <article>
+            <span>Total</span>
+            <strong id="sendProgressTotal">0</strong>
+          </article>
+        </div>
+        <p id="sendProgressCurrent">Preparando envio...</p>
+        <button id="sendProgressClose" type="button" hidden>Fechar</button>
+      </section>
+    </div>
+
     <script src="/app.js?v=20260720-2132"></script>
   </body>
 </html>

@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "crypto";
 import OpenAI from "openai";
 import pg from "pg";
 import Redis from "ioredis";
@@ -28,6 +29,7 @@ const config = {
 
 const THE_BEST_API_URL = "https://api.painel.best/user/logs/";
 const THE_BEST_ACTIONS = ["new", "extend", "trial-conversion"];
+const adsSendJobs = new Map();
 const DEFAULT_ADS_MAPPINGS = [
   { nome_campanha: "ADS1 - KRONE (3545)", login_the_best: "Jonathan01" },
   { nome_campanha: "ADS8 - ALLAN (5666)", login_the_best: "revendaallan" },
@@ -62,7 +64,7 @@ app.get("/health", async (_req, res) => {
 await ensureSchema();
 
 function requireAdmin(req, res, next) {
-  const token = req.header("x-admin-token");
+  const token = req.header("x-admin-token") || req.query?.token;
   if (config.uiAdminToken && token !== config.uiAdminToken) {
     return res.status(401).json({ error: "invalid admin token" });
   }
@@ -161,62 +163,177 @@ app.post("/admin/ads/preview", requireAdmin, async (req, res) => {
 
 app.post("/admin/ads/send", requireAdmin, async (req, res) => {
   try {
-    const rawInput = String(req.body?.text || "").trim();
-    const overrides = Array.isArray(req.body?.entries) ? req.body.entries : null;
-    if (!rawInput) return res.status(400).json({ error: "text is required" });
-
-    const groups = await findEvolutionGroups("ADS");
-    if (!parseAdsEntries(rawInput).length) {
-      return res.status(400).json({ error: "no ADS entries found" });
-    }
-
-    const state = await fetchEvolutionState(config.evolutionInstanceName);
-    if (state?.instance?.state !== "open") {
-      return res.status(409).json({ error: "whatsapp disconnected", state: state?.instance?.state || "unknown" });
-    }
-
-    const sent = [];
-    const missing = [];
-    const mappings = mergeAdsMappings(DEFAULT_ADS_MAPPINGS, extractAdsMappings(rawInput));
-    const { statsMap } = await getTheBestStatsMapSafe(getAdsStatsDate(rawInput));
-    const entries = buildAdsPreviewEntries(rawInput, groups, mappings, statsMap);
-
-    for (let index = 0; index < entries.length; index += 1) {
-      const entry = entries[index];
-      const parsed = entry.parsed;
-      const override = overrides?.[index];
-      if (override?.skip) continue;
-      const match = override?.groupJid
-        ? { remoteJid: override.groupJid, name: override.groupName || override.groupJid, score: 1 }
-        : entry.match;
-
-      if (!match?.remoteJid) {
-        missing.push({ index, parsed });
-        continue;
-      }
-
-      const message = entry.message;
-      await sendEvolutionText(config.evolutionInstanceName, match.remoteJid, message);
-      const saved = await saveAdsDispatch({
-        parsed,
-        rawInput: entry.rawInput,
-        match,
-        message,
-        status: "sent",
-      });
-      sent.push({ id: saved.id, match, message, theBest: entry.theBest || null });
-    }
-
-    if (missing.length) {
-      return res.status(400).json({ error: "some groups not found", sent, missing, groups: groups.slice(0, 60) });
-    }
-
-    return res.json({ ok: true, sent });
+    const result = await runAdsSend(req.body || {});
+    return res.json({ ok: true, sent: result.sent, missing: result.missing });
   } catch (error) {
     console.error("ads send failed", error);
     return res.status(502).json({ error: "ads send failed", detail: String(error.message || error) });
   }
 });
+
+app.post("/admin/ads/send-jobs", requireAdmin, async (req, res) => {
+  const job = createAdsSendJob(req.body || {});
+  res.json({ jobId: job.id });
+  runAdsSendJob(job).catch((error) => {
+    console.error("ads send job failed", error);
+    updateAdsSendJob(job, {
+      status: "failed",
+      error: String(error.message || error),
+      finishedAt: new Date().toISOString(),
+    });
+  });
+});
+
+app.get("/admin/ads/send-jobs/:id/events", requireAdmin, (req, res) => {
+  const job = adsSendJobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: "job not found" });
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+  });
+  res.write(`data: ${JSON.stringify(publicAdsSendJob(job))}\n\n`);
+
+  const sendUpdate = () => res.write(`data: ${JSON.stringify(publicAdsSendJob(job))}\n\n`);
+  job.listeners.add(sendUpdate);
+  req.on("close", () => job.listeners.delete(sendUpdate));
+  return undefined;
+});
+
+function createAdsSendJob(payload) {
+  const id = crypto.randomUUID();
+  const job = {
+    id,
+    payload,
+    status: "queued",
+    total: 0,
+    sentCount: 0,
+    missingCount: 0,
+    remainingCount: 0,
+    currentLabel: "",
+    currentGroup: "",
+    sent: [],
+    missing: [],
+    error: "",
+    startedAt: new Date().toISOString(),
+    finishedAt: "",
+    listeners: new Set(),
+  };
+  adsSendJobs.set(id, job);
+  setTimeout(() => adsSendJobs.delete(id), 60 * 60 * 1000).unref?.();
+  return job;
+}
+
+async function runAdsSendJob(job) {
+  updateAdsSendJob(job, { status: "running" });
+  const result = await runAdsSend(job.payload, (progress) => updateAdsSendJob(job, progress));
+  updateAdsSendJob(job, {
+    ...result,
+    status: result.missing.length ? "partial" : "done",
+    finishedAt: new Date().toISOString(),
+  });
+}
+
+function updateAdsSendJob(job, patch) {
+  Object.assign(job, patch);
+  job.remainingCount = Math.max(Number(job.total || 0) - Number(job.sentCount || 0) - Number(job.missingCount || 0), 0);
+  for (const listener of job.listeners) listener();
+}
+
+function publicAdsSendJob(job) {
+  return {
+    id: job.id,
+    status: job.status,
+    total: job.total,
+    sentCount: job.sentCount,
+    missingCount: job.missingCount,
+    remainingCount: job.remainingCount,
+    currentLabel: job.currentLabel,
+    currentGroup: job.currentGroup,
+    sent: job.sent,
+    missing: job.missing,
+    error: job.error,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt,
+  };
+}
+
+async function runAdsSend(payload, onProgress = () => {}) {
+  const rawInput = String(payload?.text || "").trim();
+  const overrides = Array.isArray(payload?.entries) ? payload.entries : null;
+  if (!rawInput) throw new Error("text is required");
+
+  const groups = await findEvolutionGroups("ADS");
+  if (!parseAdsEntries(rawInput).length) {
+    const error = new Error("no ADS entries found");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const state = await fetchEvolutionState(config.evolutionInstanceName);
+  if (state?.instance?.state !== "open") {
+    const error = new Error("whatsapp disconnected");
+    error.statusCode = 409;
+    error.state = state?.instance?.state || "unknown";
+    throw error;
+  }
+
+  const sent = [];
+  const missing = [];
+  const mappings = mergeAdsMappings(DEFAULT_ADS_MAPPINGS, extractAdsMappings(rawInput));
+  const { statsMap } = await getTheBestStatsMapSafe(getAdsStatsDate(rawInput));
+  const entries = buildAdsPreviewEntries(rawInput, groups, mappings, statsMap);
+  const targets = entries
+    .map((entry, index) => ({ entry, index, override: overrides?.[index] }))
+    .filter((target) => !target.override?.skip);
+
+  onProgress({
+    total: targets.length,
+    sentCount: 0,
+    missingCount: 0,
+    remainingCount: targets.length,
+    currentLabel: "",
+    currentGroup: "",
+    sent,
+    missing,
+  });
+
+  for (const target of targets) {
+    const { entry, index, override } = target;
+    const parsed = entry.parsed;
+    const match = override?.groupJid
+      ? { remoteJid: override.groupJid, name: override.groupName || override.groupJid, score: 1 }
+      : entry.match;
+
+    onProgress({
+      currentLabel: parsed.label,
+      currentGroup: match?.name || "Grupo nao encontrado",
+      sentCount: sent.length,
+      missingCount: missing.length,
+    });
+
+    if (!match?.remoteJid) {
+      missing.push({ index, parsed });
+      onProgress({ missingCount: missing.length, sent, missing });
+      continue;
+    }
+
+    const message = entry.message;
+    await sendEvolutionText(config.evolutionInstanceName, match.remoteJid, message);
+    const saved = await saveAdsDispatch({
+      parsed,
+      rawInput: entry.rawInput,
+      match,
+      message,
+      status: "sent",
+    });
+    sent.push({ id: saved.id, match, message, theBest: entry.theBest || null });
+    onProgress({ sentCount: sent.length, sent, missing });
+  }
+
+  return { sent, missing };
+}
 
 app.get("/connect-whatsapp", async (_req, res) => {
   try {
