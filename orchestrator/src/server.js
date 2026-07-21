@@ -615,6 +615,7 @@ function parseAdsInput(rawInput) {
   const first = lines[0] || "";
   const valueLine = lines.find((line) => /^valor\s*:/i.test(line)) || "";
   const dateLine = lines.find((line) => /^data\s*:/i.test(line)) || "";
+  const conversationsLine = lines.find((line) => /^conversas\s+iniciadas\s*:/i.test(line)) || "";
   const nameLine = lines.find((line) => /^nome\s*:/i.test(line)) || "";
   const pixLine = lines.find((line) => /^pix\s*:/i.test(line)) || "";
   const currency = /\bUS\$|\bUSD/i.test(valueLine) ? "USD" : "BRL";
@@ -628,6 +629,7 @@ function parseAdsInput(rawInput) {
   return {
     label,
     date: normalizeDateCell(dateLine.replace(/^data\s*:\s*/i, "")),
+    conversationsStarted: parseCountCell(conversationsLine.replace(/^conversas\s+iniciadas\s*:\s*/i, "")),
     rawValue,
     currency,
     taxRate: config.adsTaxRate,
@@ -729,7 +731,7 @@ function buildJrAdsMessage(jrItems, date) {
       `Nome: ${item.parsed.customerName || "-"}`,
       `Pix: ${item.parsed.pix || "-"}`,
     );
-    pushTheBestLines(lines, item.theBest);
+    pushTheBestLines(lines, item.theBest, item.parsed);
     lines.push("");
   }
 
@@ -777,6 +779,11 @@ async function parseAdsWorkbook(buffer, options = {}) {
   const headers = Object.keys(rows[0]);
   const campaignKey = findHeader(headers, ["nome da campanha", "campaign name", "campanha"]);
   const spentKey = findHeader(headers, ["valor usado", "amount spent", "spent"]);
+  const conversationsKey = findHeader(headers, [
+    "conversas por mensagem iniciadas",
+    "messaging conversations started",
+    "conversations started",
+  ]);
   const budgetKey = findHeader(headers, [
     "orcamento do conjunto de anuncios",
     "or amento do conjunto",
@@ -803,6 +810,7 @@ async function parseAdsWorkbook(buffer, options = {}) {
 
     const spent = parseNumberCell(row[spentKey]);
     const budget = parseNumberCell(row[budgetKey]);
+    const conversationsStarted = parseCountCell(row[conversationsKey]);
     const sourceValue = spentKey ? spent : budget;
     const value = roundCurrencyUp(sourceCurrency === "USD" ? sourceValue * exchange.rate : sourceValue);
     const currency = "BRL";
@@ -814,9 +822,11 @@ async function parseAdsWorkbook(buffer, options = {}) {
       value: 0,
       currency,
       rows: 0,
+      conversationsStarted: 0,
       date: normalizeDateCell(row[dateKey]),
     };
     current.value += value;
+    current.conversationsStarted += conversationsStarted;
     current.currency = current.currency === "BRL" || currency === "BRL" ? "BRL" : currency;
     current.rows += 1;
     if (!current.date) current.date = normalizeDateCell(row[dateKey]);
@@ -829,6 +839,7 @@ async function parseAdsWorkbook(buffer, options = {}) {
       item.label,
       `Data: ${item.date || getTheBestDate()}`,
       `Valor: ${item.currency === "USD" ? "US$" : "R$"} ${formatDecimal(item.value)}`,
+      `Conversas iniciadas: ${formatCount(item.conversationsStarted)}`,
       `Nome: ${pixDetails.name || "-"}`,
       `Pix: ${pixDetails.pix || "-"}`,
     ].join("\n"));
@@ -838,6 +849,7 @@ async function parseAdsWorkbook(buffer, options = {}) {
     entries: entries.length,
     source,
     valueColumn: spentKey || budgetKey,
+    conversationsColumn: conversationsKey,
     budgetColumn: budgetKey,
     sourceCurrency,
     exchangeRate: exchange?.rate || null,
@@ -917,6 +929,17 @@ function parseNumberCell(value) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   const parsed = parseMoney(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseCountCell(value) {
+  const number = parseNumberCell(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function formatCount(value) {
+  return Number(value || 0).toLocaleString("pt-BR", {
+    maximumFractionDigits: 0,
+  });
 }
 
 function detectMoneyHeaderCurrency(header) {
@@ -1104,16 +1127,17 @@ function buildAdsMessage(parsed, theBest = null) {
 
   if (theBest?.login) {
     lines.push("");
-    pushTheBestLines(lines, theBest);
+    pushTheBestLines(lines, theBest, parsed);
   }
 
   return lines.join("\n");
 }
 
-function pushTheBestLines(lines, theBest) {
+function pushTheBestLines(lines, theBest, parsed = {}) {
   if (!theBest?.login) return;
   lines.push(
     `The Best (${theBest.login}):`,
+    `Conversas iniciadas: ${formatCount(parsed.conversationsStarted)}`,
     `Vendas: ${theBest.sales}`,
     `Testes: ${theBest.tests}`,
   );
