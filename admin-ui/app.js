@@ -245,7 +245,7 @@ async function loadAdsFile() {
   adsSendButton.disabled = true;
 
   try {
-    if (/\.xlsx?$/i.test(file.name)) {
+    if (/\.(xlsx?|csv)$/i.test(file.name)) {
       const base64 = await fileToBase64(file);
       const data = await api("ads/import-file", {
         method: "POST",
@@ -258,8 +258,8 @@ async function loadAdsFile() {
         : "";
       adsStatus.textContent = `${data.entries || 0} lancamento(s) importado(s)${quote}`;
       adsPreviewBox.textContent = data.text
-        ? "Planilha convertida. Clique em Gerar previa para conferir os grupos."
-        : "Nenhum ADS com valor foi encontrado na planilha.";
+        ? "Arquivo convertido. Clique em Gerar previa para conferir os grupos."
+        : "Nenhum ADS com valor foi encontrado no arquivo.";
       return;
     }
 

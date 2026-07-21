@@ -121,8 +121,8 @@ app.post("/admin/ads/import-file", requireAdmin, async (req, res) => {
     if (!base64) return res.status(400).json({ error: "base64 is required" });
 
     const buffer = Buffer.from(base64, "base64");
-    if (/\.xlsx?$/i.test(filename)) {
-      const result = await parseAdsWorkbook(buffer, { pix });
+    if (/\.(xlsx?|csv)$/i.test(filename)) {
+      const result = await parseAdsWorkbook(buffer, { filename, pix });
       return res.json(result);
     }
 
@@ -644,25 +644,35 @@ function formatShortDate(date) {
 
 async function parseAdsWorkbook(buffer, options = {}) {
   const pixDetails = parsePixDetails(options.pix || "");
-  const exchange = await getUsdToBrlRate();
+  const source = /\.csv$/i.test(options.filename || "") ? "csv" : "xlsx";
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: false });
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
-  if (!sheet) return { text: "", entries: 0, source: "xlsx" };
+  if (!sheet) return { text: "", entries: 0, source };
 
   const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
-  if (!rows.length) return { text: "", entries: 0, source: "xlsx" };
+  if (!rows.length) return { text: "", entries: 0, source };
 
   const headers = Object.keys(rows[0]);
   const campaignKey = findHeader(headers, ["nome da campanha", "campaign name", "campanha"]);
   const spentKey = findHeader(headers, ["valor usado", "amount spent", "spent"]);
+  const budgetKey = findHeader(headers, [
+    "orcamento do conjunto de anuncios",
+    "or amento do conjunto",
+    "ora amento do conjunto",
+    "ad set budget",
+    "budget",
+  ]);
   const dateKey = findHeader(headers, ["inicio dos relatorios", "início dos relatórios", "reporting starts"]);
+
+  const sourceCurrency = detectMoneyHeaderCurrency(spentKey) || detectMoneyHeaderCurrency(budgetKey) || "USD";
+  const exchange = sourceCurrency === "USD" ? await getUsdToBrlRate() : null;
 
   if (!campaignKey) {
     throw new Error("Coluna de campanha nao encontrada na planilha");
   }
-  if (!spentKey) {
-    throw new Error("Coluna Valor usado nao encontrada na planilha");
+  if (!spentKey && !budgetKey) {
+    throw new Error("Coluna Valor usado ou Orcamento nao encontrada na planilha");
   }
 
   const grouped = new Map();
@@ -671,7 +681,9 @@ async function parseAdsWorkbook(buffer, options = {}) {
     if (!normalizeText(label).startsWith("ADS")) continue;
 
     const spent = parseNumberCell(row[spentKey]);
-    const value = roundCurrencyUp(spent * exchange.rate);
+    const budget = parseNumberCell(row[budgetKey]);
+    const sourceValue = spent > 0 ? spent : budget;
+    const value = roundCurrencyUp(sourceCurrency === "USD" ? sourceValue * exchange.rate : sourceValue);
     const currency = "BRL";
     if (value <= 0) continue;
 
@@ -703,11 +715,13 @@ async function parseAdsWorkbook(buffer, options = {}) {
   return {
     text: entries.join("\n\n"),
     entries: entries.length,
-    source: "xlsx",
-    valueColumn: spentKey,
-    exchangeRate: exchange.rate,
-    exchangeUpdatedAt: exchange.updatedAt,
-    exchangeSource: exchange.source,
+    source,
+    valueColumn: spentKey || budgetKey,
+    budgetColumn: budgetKey,
+    sourceCurrency,
+    exchangeRate: exchange?.rate || null,
+    exchangeUpdatedAt: exchange?.updatedAt || null,
+    exchangeSource: exchange?.source || null,
   };
 }
 
@@ -731,9 +745,30 @@ function normalizeBlank(value) {
 
 function findHeader(headers, candidates) {
   return headers.find((header) => {
-    const normalized = normalizeText(header);
-    return candidates.some((candidate) => normalized.includes(normalizeText(candidate)));
+    const normalizedVariants = [header, repairMojibake(header)].map((value) => normalizeText(value));
+    return candidates.some((candidate) => {
+      const normalizedCandidate = normalizeText(candidate);
+      return normalizedVariants.some((normalized) =>
+        normalized.includes(normalizedCandidate) || isKnownMojibakeHeaderMatch(normalized, normalizedCandidate)
+      );
+    });
   });
+}
+
+function isKnownMojibakeHeaderMatch(normalizedHeader, normalizedCandidate) {
+  if (normalizedCandidate === "INICIO DOS RELATORIOS") {
+    return normalizedHeader.includes("INA CIO DOS RELATA RIOS");
+  }
+  if (normalizedCandidate === "ORCAMENTO DO CONJUNTO DE ANUNCIOS") {
+    return normalizedHeader.includes("ORA AMENTO DO CONJUNTO");
+  }
+  return false;
+}
+
+function repairMojibake(value) {
+  const text = String(value || "");
+  if (!/[ÃÂ]/.test(text)) return text;
+  return Buffer.from(text, "latin1").toString("utf8");
 }
 
 function normalizeCampaignLabel(value) {
@@ -749,10 +784,23 @@ function parseNumberCell(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function detectMoneyHeaderCurrency(header) {
+  const normalized = normalizeText(header);
+  if (/\bBRL\b|\bR\b/.test(normalized)) return "BRL";
+  if (/\bUSD\b|\bUS\b/.test(normalized)) return "USD";
+  return "";
+}
+
 function normalizeDateCell(value) {
   if (!value) return null;
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value.toISOString().slice(0, 10);
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const parsed = XLSX.SSF.parse_date_code(Math.round(value));
+    if (parsed?.y && parsed?.m && parsed?.d) {
+      return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+    }
   }
 
   const text = String(value).trim();
