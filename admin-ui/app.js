@@ -1,4 +1,5 @@
-const tokenInput = document.querySelector("#adminToken");
+const adminUserInput = document.querySelector("#adminUser");
+const adminPasswordInput = document.querySelector("#adminPassword");
 const saveTokenButton = document.querySelector("#saveTokenButton");
 const refreshButton = document.querySelector("#refreshButton");
 const testButton = document.querySelector("#testButton");
@@ -26,6 +27,12 @@ const dispatchList = document.querySelector("#dispatchList");
 const themeToggle = document.querySelector("#themeToggle");
 const adsPixDefault = document.querySelector("#adsPixDefault");
 const savePixButton = document.querySelector("#savePixButton");
+const monitorStatus = document.querySelector("#monitorStatus");
+const monitorGroupFilter = document.querySelector("#monitorGroupFilter");
+const monitorGroupSearchButton = document.querySelector("#monitorGroupSearchButton");
+const monitorGroupSelect = document.querySelector("#monitorGroupSelect");
+const monitorEnabled = document.querySelector("#monitorEnabled");
+const saveMonitorButton = document.querySelector("#saveMonitorButton");
 const sendProgressOverlay = document.querySelector("#sendProgressOverlay");
 const sendProgressTitle = document.querySelector("#sendProgressTitle");
 const sendProgressPercent = document.querySelector("#sendProgressPercent");
@@ -54,12 +61,12 @@ const metrics = {
   contacts: document.querySelector("#metricContacts"),
 };
 
-tokenInput.value = localStorage.getItem("uiAdminToken") || "";
+adminUserInput.value = localStorage.getItem("uiAdminUser") || "agner";
 adsPixDefault.value = localStorage.getItem("adsPixDefault") || "";
 
-saveTokenButton.addEventListener("click", () => {
-  localStorage.setItem("uiAdminToken", tokenInput.value.trim());
-  loadSummary();
+saveTokenButton.addEventListener("click", loginAdmin);
+adminPasswordInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") loginAdmin();
 });
 
 refreshButton.addEventListener("click", loadSummary);
@@ -71,6 +78,11 @@ adsGroupSearchButton.addEventListener("click", loadAdsGroups);
 adsGroupFilter.addEventListener("keydown", (event) => {
   if (event.key === "Enter") loadAdsGroups();
 });
+monitorGroupSearchButton.addEventListener("click", loadMonitorGroups);
+monitorGroupFilter.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") loadMonitorGroups();
+});
+saveMonitorButton.addEventListener("click", saveMonitorSettings);
 historyFilterButton.addEventListener("click", loadAdsHistory);
 historyClearButton.addEventListener("click", () => {
   historyDateFilter.value = "";
@@ -97,7 +109,7 @@ initTheme();
 updateActiveNav();
 
 async function api(path, options = {}) {
-  const token = localStorage.getItem("uiAdminToken") || tokenInput.value.trim();
+  const token = localStorage.getItem("uiAdminToken") || "";
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs || 30000;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -125,17 +137,120 @@ async function api(path, options = {}) {
   return response.json();
 }
 
+async function loginAdmin() {
+  const username = adminUserInput.value.trim();
+  const password = adminPasswordInput.value;
+  if (!username || !password) {
+    lastUpdate.textContent = "Informe login e senha";
+    return;
+  }
+
+  saveTokenButton.disabled = true;
+  saveTokenButton.textContent = "Entrando...";
+
+  try {
+    const response = await fetch("/api/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+
+    localStorage.setItem("uiAdminUser", username);
+    localStorage.setItem("uiAdminToken", data.token || "");
+    adminPasswordInput.value = "";
+    lastUpdate.textContent = "Login realizado";
+    loadSummary();
+  } catch (error) {
+    localStorage.removeItem("uiAdminToken");
+    lastUpdate.textContent = `Falha no login: ${error.message}`;
+  } finally {
+    saveTokenButton.disabled = false;
+    saveTokenButton.textContent = "Entrar";
+  }
+}
+
 async function loadSummary() {
   try {
     const data = await api("summary");
     renderMetrics(data.totals || {});
     renderServices(data.services || {});
     renderMessages(data.recentMessages || []);
+    loadMonitorSettings();
     loadAdsHistory();
     lastUpdate.textContent = new Date().toLocaleString("pt-BR");
   } catch (error) {
     lastUpdate.textContent = "Falha ao carregar";
     statusStrip.innerHTML = `<div class="statusItem"><span>Painel</span><strong class="fail">${escapeHtml(error.message)}</strong></div>`;
+  }
+}
+
+async function loadMonitorSettings() {
+  try {
+    const data = await api("monitor/settings");
+    const settings = data.settings || {};
+    monitorEnabled.checked = Boolean(settings.enabled);
+    monitorStatus.textContent = settings.enabled
+      ? `Monitorando: ${settings.groupName || settings.groupJid}`
+      : "Nenhum grupo monitorado.";
+
+    if (settings.groupJid && ![...monitorGroupSelect.options].some((option) => option.value === settings.groupJid)) {
+      monitorGroupSelect.appendChild(new Option(settings.groupName || settings.groupJid, settings.groupJid));
+    }
+    if (settings.groupJid) monitorGroupSelect.value = settings.groupJid;
+  } catch (error) {
+    monitorStatus.textContent = `Falha ao carregar monitor: ${error.message}`;
+  }
+}
+
+async function loadMonitorGroups() {
+  const prefix = monitorGroupFilter.value.trim();
+  monitorStatus.textContent = "Buscando grupos...";
+
+  try {
+    const data = await api(`monitor/groups?prefix=${encodeURIComponent(prefix)}`);
+    populateMonitorGroupSelect(data.groups || [], monitorGroupSelect.value);
+    monitorStatus.textContent = `${data.groups?.length || 0} grupo(s) encontrado(s)`;
+  } catch (error) {
+    monitorStatus.textContent = `Falha ao buscar grupos: ${error.message}`;
+  }
+}
+
+function populateMonitorGroupSelect(groups, selectedJid = "") {
+  monitorGroupSelect.innerHTML = "";
+  for (const group of groups) {
+    const option = new Option(group.name, group.remoteJid);
+    option.selected = group.remoteJid === selectedJid;
+    monitorGroupSelect.appendChild(option);
+  }
+}
+
+async function saveMonitorSettings() {
+  const selected = monitorGroupSelect.selectedOptions[0];
+  const groupJid = monitorGroupSelect.value;
+  const groupName = selected?.textContent || groupJid;
+
+  saveMonitorButton.disabled = true;
+  monitorStatus.textContent = "Salvando grupo...";
+
+  try {
+    const data = await api("monitor/settings", {
+      method: "POST",
+      body: JSON.stringify({
+        enabled: monitorEnabled.checked,
+        groupJid,
+        groupName,
+      }),
+    });
+    const settings = data.settings || {};
+    monitorStatus.textContent = settings.enabled
+      ? `Monitorando: ${settings.groupName || settings.groupJid}`
+      : "Monitor desligado.";
+  } catch (error) {
+    monitorStatus.textContent = `Falha ao salvar: ${error.message}`;
+  } finally {
+    saveMonitorButton.disabled = false;
   }
 }
 
@@ -623,7 +738,7 @@ async function sendAdsWithProgress(payload) {
     });
 
   return new Promise((resolve, reject) => {
-    const token = encodeURIComponent(localStorage.getItem("uiAdminToken") || tokenInput.value.trim());
+    const token = encodeURIComponent(localStorage.getItem("uiAdminToken") || "");
     const events = new EventSource(`/api/ads/send-jobs/${encodeURIComponent(started.jobId)}/events?token=${token}`);
     events.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -707,6 +822,13 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function formatDecimalNumber(value) {
+  return Number(value || 0).toLocaleString("pt-BR", {
+    minimumFractionDigits: Number(value || 0) % 1 ? 1 : 0,
+    maximumFractionDigits: 2,
+  });
 }
 
 function initTheme() {

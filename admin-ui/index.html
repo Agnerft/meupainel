@@ -23,11 +23,13 @@
           <a class="navItem" href="#ia"><span>03</span>Teste da IA</a>
           <a class="navItem" href="/connect-whatsapp"><span>04</span>WhatsApp</a>
           <a class="navItem" href="#dispatch-history"><span>05</span>Historico ADS</a>
+          <a class="navItem" href="#monitor"><span>06</span>Monitor</a>
         </nav>
         <section class="authPanel" id="authPanel">
-          <label for="adminToken">Token admin</label>
+          <label for="adminUser">Acesso admin</label>
           <div class="tokenRow">
-            <input id="adminToken" type="password" placeholder="Cole o token" autocomplete="off" />
+            <input id="adminUser" type="text" placeholder="Login" autocomplete="username" />
+            <input id="adminPassword" type="password" placeholder="Senha" autocomplete="current-password" />
             <button id="saveTokenButton">Entrar</button>
           </div>
         </section>
@@ -158,6 +160,43 @@
         </section>
 
         <section class="workArea">
+          <div class="panel monitorPanel" id="monitor">
+            <div class="panelHeader">
+              <div>
+                <span class="sectionKicker">Grupo monitorado</span>
+                <h2>Comandos no WhatsApp</h2>
+                <p id="monitorStatus">Escolha o grupo que vai aceitar comandos.</p>
+              </div>
+            </div>
+            <div class="monitorGrid">
+              <label>
+                Buscar grupo
+                <div class="groupSearchRow">
+                  <input id="monitorGroupFilter" type="text" placeholder="Nome do grupo..." />
+                  <button id="monitorGroupSearchButton" type="button">Buscar</button>
+                </div>
+              </label>
+              <label>
+                Grupo
+                <select id="monitorGroupSelect"></select>
+              </label>
+              <div class="monitorActions">
+                <label class="checkboxRow">
+                  <input id="monitorEnabled" type="checkbox" />
+                  <span>Monitorar este grupo</span>
+                </label>
+                <button id="saveMonitorButton" type="button">Salvar grupo</button>
+              </div>
+            </div>
+            <div class="commandHelp">
+              <strong>Comandos aceitos</strong>
+              <code>status</code>
+              <code>quantos creditos</code>
+              <code>credito 5 todos</code>
+              <span>O bot posta status, consulta créditos ou adiciona créditos em todas as revendas TDS.</span>
+            </div>
+          </div>
+
           <div class="panel" id="messages">
             <div class="panelHeader">
               <div>

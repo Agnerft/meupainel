@@ -32,3 +32,29 @@ CREATE TABLE IF NOT EXISTS ads_dispatches (
 
 CREATE INDEX IF NOT EXISTS idx_ads_dispatches_group_jid
   ON ads_dispatches(group_jid);
+
+CREATE TABLE IF NOT EXISTS external_ads_stats (
+  id BIGSERIAL PRIMARY KEY,
+  campaign_key TEXT NOT NULL,
+  campaign_label TEXT NOT NULL,
+  stats_date DATE NOT NULL,
+  sales INTEGER NOT NULL DEFAULT 0,
+  renewals INTEGER NOT NULL DEFAULT 0,
+  tests INTEGER NOT NULL DEFAULT 0,
+  conversations_started INTEGER NOT NULL DEFAULT 0,
+  customer_name TEXT,
+  pix TEXT,
+  raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (campaign_key, stats_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_external_ads_stats_date
+  ON external_ads_stats(stats_date);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

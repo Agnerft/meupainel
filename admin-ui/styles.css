@@ -201,6 +201,59 @@ label {
   gap: 8px;
 }
 
+.monitorGrid {
+  padding: 18px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.monitorActions {
+  display: grid;
+  gap: 10px;
+  align-content: end;
+}
+
+.checkboxRow {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.checkboxRow input {
+  width: 18px;
+  min-height: 18px;
+}
+
+.commandHelp {
+  margin: 0 18px 18px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  background: var(--soft);
+}
+
+.commandHelp strong {
+  color: var(--ink);
+}
+
+.commandHelp code {
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+
 input,
 textarea,
 select {
@@ -996,6 +1049,7 @@ pre {
   .adsGrid,
   .metrics,
   .statusStrip,
+  .monitorGrid,
   .groupSearchRow {
     grid-template-columns: 1fr;
   }

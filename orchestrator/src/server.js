@@ -6,7 +6,7 @@ import Redis from "ioredis";
 import XLSX from "xlsx";
 
 const app = express();
-app.use(express.json({ limit: "20mb" }));
+app.use(express.json({ limit: "80mb" }));
 
 const port = Number(process.env.PORT || 3000);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -20,6 +20,8 @@ const config = {
   evolutionInstanceName: process.env.EVOLUTION_INSTANCE_NAME || "principal",
   webhookSecret: process.env.ORCHESTRATOR_WEBHOOK_SECRET,
   uiAdminToken: process.env.UI_ADMIN_TOKEN,
+  uiAdminUser: process.env.UI_ADMIN_USER || "agner",
+  uiAdminPassword: process.env.UI_ADMIN_PASSWORD,
   adsTaxRate: Number(process.env.ADS_TAX_RATE || 12.15),
   theBestApiKey: process.env.THE_BEST_API_KEY,
   theBestPerUserApiKeys: parseJsonEnv(process.env.THE_BEST_PER_USER_API_KEYS_JSON, {}),
@@ -28,16 +30,21 @@ const config = {
 };
 
 const THE_BEST_API_URL = "https://api.painel.best/user/logs/";
+const THE_BEST_BASE_URL = "https://api.painel.best";
 const THE_BEST_ACTIONS = ["new", "extend", "trial-conversion"];
 const adsSendJobs = new Map();
+const EXTERNAL_ADS_CAMPAIGNS = [
+  { key: "angelo", label: "ADS15 - ANGELO (2061)", aliases: ["ANGELO", "ADS15", "2061"] },
+  { key: "rafa", label: "ADS17 - RAFA NATV (1757)", aliases: ["RAFA", "NATV", "ADS17", "1757"] },
+];
 const DEFAULT_ADS_MAPPINGS = [
   { nome_campanha: "ADS1 - KRONE (3545)", login_the_best: "Jonathan01" },
   { nome_campanha: "ADS8 - ALLAN (5666)", login_the_best: "revendaallan" },
   { nome_campanha: "ADS9 - DOUGLAS SANDI (9023)", login_the_best: "sandi01" },
   { nome_campanha: "ADS11 - LUCAS MAYCA (7908)", login_the_best: "lucasmayca" },
   { nome_campanha: "ADS13 - IGOR (1755)", login_the_best: "igor01" },
-  { nome_campanha: "ADS15 - ANGELO (2061)", login_the_best: "" },
-  { nome_campanha: "ADS17 - RAFA NATV (1757)", login_the_best: "" },
+  { nome_campanha: "ADS15 - ANGELO (2061)", login_the_best: "angelo" },
+  { nome_campanha: "ADS17 - RAFA NATV (1757)", login_the_best: "rafa" },
   { nome_campanha: "ADS27 - ALEXANDRE JR (8841)", login_the_best: "Alexandre01" },
   { nome_campanha: "ADS29 - GUILHERME JR (9889)", login_the_best: "Guimendes" },
   { nome_campanha: "ADS31 - DAVID JR (1276)", login_the_best: "David01" },
@@ -47,7 +54,7 @@ const DEFAULT_ADS_MAPPINGS = [
   { nome_campanha: "ADS19 - ERICK (1910)", login_the_best: "tdsmalware" },
   { nome_campanha: "ADS20 - HERON (1181)", login_the_best: "tdsdrvendasnights" },
   { nome_campanha: "ADS21 - IGOREKEISY (1421)", login_the_best: "tdsbigseven" },
-  { nome_campanha: "ADS22 - JACQUES (5590)", login_the_best: "tdshechosen" },
+  { nome_campanha: "ADS22 - JACQUES (5590)", login_the_best: "tdsthechosen" },
   { nome_campanha: "ADS23 - JOAO (7378)", login_the_best: "tdspaqueta20vender" },
   { nome_campanha: "ADS24 - JULIO (1718)", login_the_best: "tdstheflash" },
   { nome_campanha: "ADS25 - ROBSON (7088)", login_the_best: "tdsrobson" },
@@ -70,6 +77,21 @@ function requireAdmin(req, res, next) {
   }
   next();
 }
+
+app.post("/admin/login", async (req, res) => {
+  const username = String(req.body?.username || "").trim();
+  const password = String(req.body?.password || "");
+
+  if (!config.uiAdminToken) return res.status(500).json({ error: "admin token not configured" });
+
+  const expectedUser = config.uiAdminUser;
+  const expectedPassword = config.uiAdminPassword || config.uiAdminToken;
+  if (username !== expectedUser || password !== expectedPassword) {
+    return res.status(401).json({ error: "login ou senha invalidos" });
+  }
+
+  res.json({ ok: true, token: config.uiAdminToken, username });
+});
 
 app.get("/admin/summary", requireAdmin, async (_req, res) => {
   const [totals, recent, services] = await Promise.all([
@@ -113,6 +135,62 @@ app.get("/admin/ads/groups", requireAdmin, async (req, res) => {
   const prefix = String(req.query.prefix || "ADS").trim();
   const groups = await findEvolutionGroups(prefix);
   res.json({ groups });
+});
+
+app.get("/admin/monitor/groups", requireAdmin, async (req, res) => {
+  const prefix = String(req.query.prefix || "").trim();
+  const groups = await findEvolutionGroups(prefix);
+  res.json({ groups });
+});
+
+app.get("/admin/monitor/settings", requireAdmin, async (_req, res) => {
+  const settings = await getAppSetting("monitor_group", {});
+  res.json({ settings });
+});
+
+app.post("/admin/monitor/settings", requireAdmin, async (req, res) => {
+  const groupJid = String(req.body?.groupJid || "").trim();
+  const groupName = String(req.body?.groupName || "").trim();
+  const enabled = Boolean(req.body?.enabled && groupJid);
+  const settings = { enabled, groupJid, groupName };
+  await setAppSetting("monitor_group", settings);
+  res.json({ ok: true, settings });
+});
+
+app.get("/admin/thebest/tds-resellers", requireAdmin, async (_req, res) => {
+  try {
+    const resellers = await fetchTdsResellers();
+    res.json({ resellers });
+  } catch (error) {
+    console.error("tds resellers failed", error);
+    res.status(502).json({ error: "tds resellers failed", detail: String(error.message || error) });
+  }
+});
+
+app.post("/admin/thebest/resellers/:id/transfer-credits", requireAdmin, async (req, res) => {
+  try {
+    const resellerId = Number(req.params.id);
+    const amount = Number(req.body?.amount);
+    if (!Number.isInteger(resellerId) || resellerId <= 0) {
+      return res.status(400).json({ error: "invalid reseller id" });
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: "amount must be greater than zero" });
+    }
+    if (amount > 500) {
+      return res.status(400).json({ error: "amount limit is 500 credits per transfer" });
+    }
+
+    const reseller = await findTdsResellerById(resellerId);
+    if (!reseller) return res.status(404).json({ error: "tds reseller not found" });
+
+    const transfer = await transferTheBestCredits(resellerId, amount);
+    const updated = await findTdsResellerById(resellerId);
+    return res.json({ ok: true, reseller: updated || reseller, transfer });
+  } catch (error) {
+    console.error("transfer credits failed", error);
+    return res.status(502).json({ error: "transfer credits failed", detail: String(error.message || error) });
+  }
 });
 
 app.get("/admin/ads/history", requireAdmin, async (req, res) => {
@@ -186,7 +264,7 @@ app.post("/admin/ads/preview", requireAdmin, async (req, res) => {
   const groups = await findEvolutionGroups("ADS");
   const mappings = mergeAdsMappings(DEFAULT_ADS_MAPPINGS, extractAdsMappings(rawInput));
   const statsDate = getAdsStatsDate(rawInput);
-  const { statsMap, statsError } = await getTheBestStatsMapSafe(statsDate);
+  const { statsMap, statsError } = await getAdsStatsMapSafe(statsDate);
   const entries = buildAdsPreviewEntries(rawInput, groups, mappings, statsMap);
   const first = entries[0];
 
@@ -322,7 +400,7 @@ async function runAdsSend(payload, onProgress = () => {}) {
   const sent = [];
   const missing = [];
   const mappings = mergeAdsMappings(DEFAULT_ADS_MAPPINGS, extractAdsMappings(rawInput));
-  const { statsMap } = await getTheBestStatsMapSafe(getAdsStatsDate(rawInput));
+  const { statsMap } = await getAdsStatsMapSafe(getAdsStatsDate(rawInput));
   const entries = buildAdsPreviewEntries(rawInput, groups, mappings, statsMap);
   const targets = entries
     .map((entry, index) => ({ entry, index, override: overrides?.[index] }))
@@ -491,6 +569,35 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS idx_ads_dispatches_group_jid
       ON ads_dispatches(group_jid)
   `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS external_ads_stats (
+      id BIGSERIAL PRIMARY KEY,
+      campaign_key TEXT NOT NULL,
+      campaign_label TEXT NOT NULL,
+      stats_date DATE NOT NULL,
+      sales INTEGER NOT NULL DEFAULT 0,
+      renewals INTEGER NOT NULL DEFAULT 0,
+      tests INTEGER NOT NULL DEFAULT 0,
+      conversations_started INTEGER NOT NULL DEFAULT 0,
+      customer_name TEXT,
+      pix TEXT,
+      raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (campaign_key, stats_date)
+    )
+  `);
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS idx_external_ads_stats_date
+      ON external_ads_stats(stats_date)
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
 }
 
 app.post("/webhooks/evolution", async (req, res) => {
@@ -503,9 +610,16 @@ app.post("/webhooks/evolution", async (req, res) => {
 
   try {
     const event = normalizeEvolutionMessage(req.body);
-    if (!event?.text || event.fromMe) return;
+    if (!event?.text) return;
+
+    if (event.fromMe) {
+      await handleMonitorGroupCommand(event);
+      return;
+    }
 
     await saveMessage(event, req.body);
+
+    if (await handleMonitorGroupCommand(event)) return;
 
     const lockKey = `reply-lock:${event.remoteJid}`;
     const lock = await redis.set(lockKey, "1", "EX", 8, "NX");
@@ -520,6 +634,188 @@ app.post("/webhooks/evolution", async (req, res) => {
     console.error("webhook processing failed", error);
   }
 });
+
+app.post("/webhooks/ads/:campaign", async (req, res) => {
+  const providedSecret = req.header("x-orchestrator-secret") || req.query.secret || req.body?.secret;
+  if (config.webhookSecret && !String(providedSecret || "").startsWith(config.webhookSecret)) {
+    return res.status(401).json({ error: "invalid webhook secret" });
+  }
+
+  const campaign = resolveExternalAdsCampaign(req.params.campaign, req.body);
+  if (!campaign) {
+    return res.status(404).json({ error: "unknown ADS webhook campaign" });
+  }
+
+  const payload = normalizeExternalAdsPayload(campaign, req.body || {});
+  const saved = await saveExternalAdsStats(payload);
+  res.status(202).json({
+    ok: true,
+    campaign: saved.campaign_key,
+    label: saved.campaign_label,
+    date: saved.stats_date,
+    sales: saved.sales,
+    renewals: saved.renewals,
+    tests: saved.tests,
+    conversationsStarted: saved.conversations_started,
+  });
+});
+
+app.post("/webhooks/ads/:campaign/:event", async (req, res) => {
+  const providedSecret = req.header("x-orchestrator-secret") || req.query.secret || req.body?.secret;
+  if (config.webhookSecret && !String(providedSecret || "").startsWith(config.webhookSecret)) {
+    return res.status(401).json({ error: "invalid webhook secret" });
+  }
+
+  const campaign = resolveExternalAdsCampaign(req.params.campaign, req.body);
+  if (!campaign) {
+    return res.status(404).json({ error: "unknown ADS webhook campaign" });
+  }
+
+  const event = normalizeExternalAdsEvent(req.params.event);
+  if (!event) {
+    return res.status(404).json({ error: "unknown ADS webhook event" });
+  }
+
+  const payload = normalizeExternalAdsEventPayload(campaign, event, req.body || {});
+  const saved = await incrementExternalAdsStats(payload);
+  res.status(202).json({
+    ok: true,
+    event,
+    campaign: saved.campaign_key,
+    label: saved.campaign_label,
+    date: saved.stats_date,
+    sales: saved.sales,
+    renewals: saved.renewals,
+    tests: saved.tests,
+    conversationsStarted: saved.conversations_started,
+  });
+});
+
+function resolveExternalAdsCampaign(value, payload = {}) {
+  const lookup = normalizeText([
+    value,
+    payload.ads,
+    payload.campaign,
+    payload.campanha,
+    payload.nome_campanha,
+    payload.label,
+  ].filter(Boolean).join(" "));
+
+  return EXTERNAL_ADS_CAMPAIGNS.find((campaign) =>
+    campaign.aliases.some((alias) => lookup.includes(normalizeText(alias)))
+  ) || null;
+}
+
+function normalizeExternalAdsEvent(value) {
+  const normalized = normalizeText(value);
+  if (["LEAD", "LEADS", "INICIO", "COMECO", "ENTRADA"].includes(normalized)) return "lead";
+  if (["TESTE", "TESTES", "GEROU TESTE", "NOVO TESTE"].includes(normalized)) return "test";
+  if (["COMPRA", "COMPROU", "VENDA", "VENDAS", "PAGAMENTO"].includes(normalized)) return "sale";
+  if (["RENOVACAO", "RENOVACOES", "RENOVOU", "EXTENSAO"].includes(normalized)) return "renewal";
+  return null;
+}
+
+function normalizeExternalAdsPayload(campaign, payload) {
+  const pixDetails = parsePixDetails(payload.pix || payload.chave_pix || "");
+  const customerName = normalizeBlank(payload.cliente_nome || payload.customer_name || payload.nome || "") || pixDetails.name;
+  const { secret: _secret, ...rawPayload } = payload;
+
+  return {
+    campaignKey: campaign.key,
+    campaignLabel: normalizeCampaignLabel(payload.nome_campanha || payload.campaign || payload.campanha || campaign.label),
+    date: normalizeDateCell(payload.data || payload.date || payload.stats_date) || getTheBestDate(),
+    sales: parseCountCell(payload.vendas ?? payload.sales ?? payload.trial_conversions),
+    renewals: parseCountCell(payload.renovacoes ?? payload.renewals ?? payload.extensoes ?? payload.extensions),
+    tests: parseCountCell(payload.testes ?? payload.tests ?? payload.novos ?? payload.new),
+    conversationsStarted: parseCountCell(
+      payload.conversas_iniciadas ?? payload.conversations_started ?? payload.messaging_conversations_started
+    ),
+    customerName: customerName || null,
+    pix: pixDetails.pix || normalizeBlank(payload.pix || payload.chave_pix || "") || null,
+    rawPayload,
+  };
+}
+
+function normalizeExternalAdsEventPayload(campaign, event, payload) {
+  const base = normalizeExternalAdsPayload(campaign, payload);
+  const quantity = Math.max(parseCountCell(payload.quantidade ?? payload.quantity ?? payload.qtd ?? 1), 1);
+
+  return {
+    ...base,
+    salesDelta: event === "sale" ? quantity : 0,
+    renewalsDelta: event === "renewal" ? quantity : 0,
+    testsDelta: event === "test" ? quantity : 0,
+    conversationsStartedDelta: event === "lead" ? quantity : 0,
+  };
+}
+
+async function saveExternalAdsStats(payload) {
+  const result = await db.query(
+    `INSERT INTO external_ads_stats
+      (campaign_key, campaign_label, stats_date, sales, renewals, tests,
+       conversations_started, customer_name, pix, raw_payload)
+     VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10::jsonb)
+     ON CONFLICT (campaign_key, stats_date)
+     DO UPDATE SET
+       campaign_label = EXCLUDED.campaign_label,
+       sales = EXCLUDED.sales,
+       renewals = EXCLUDED.renewals,
+       tests = EXCLUDED.tests,
+       conversations_started = EXCLUDED.conversations_started,
+       customer_name = EXCLUDED.customer_name,
+       pix = EXCLUDED.pix,
+       raw_payload = EXCLUDED.raw_payload,
+       updated_at = now()
+     RETURNING campaign_key, campaign_label, stats_date, sales, renewals, tests, conversations_started`,
+    [
+      payload.campaignKey,
+      payload.campaignLabel,
+      payload.date,
+      payload.sales,
+      payload.renewals,
+      payload.tests,
+      payload.conversationsStarted,
+      payload.customerName,
+      payload.pix,
+      JSON.stringify(payload.rawPayload || {}),
+    ],
+  );
+  return result.rows[0];
+}
+
+async function incrementExternalAdsStats(payload) {
+  const result = await db.query(
+    `INSERT INTO external_ads_stats
+      (campaign_key, campaign_label, stats_date, sales, renewals, tests,
+       conversations_started, customer_name, pix, raw_payload)
+     VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10::jsonb)
+     ON CONFLICT (campaign_key, stats_date)
+     DO UPDATE SET
+       campaign_label = EXCLUDED.campaign_label,
+       sales = external_ads_stats.sales + EXCLUDED.sales,
+       renewals = external_ads_stats.renewals + EXCLUDED.renewals,
+       tests = external_ads_stats.tests + EXCLUDED.tests,
+       conversations_started = external_ads_stats.conversations_started + EXCLUDED.conversations_started,
+       customer_name = COALESCE(EXCLUDED.customer_name, external_ads_stats.customer_name),
+       pix = COALESCE(EXCLUDED.pix, external_ads_stats.pix),
+       raw_payload = EXCLUDED.raw_payload,
+       updated_at = now()
+     RETURNING campaign_key, campaign_label, stats_date, sales, renewals, tests, conversations_started`,
+    [
+      payload.campaignKey,
+      payload.campaignLabel,
+      payload.date,
+      payload.salesDelta,
+      payload.renewalsDelta,
+      payload.testsDelta,
+      payload.conversationsStartedDelta,
+      payload.customerName,
+      payload.pix,
+      JSON.stringify(payload.rawPayload || {}),
+    ],
+  );
+  return result.rows[0];
+}
 
 function normalizeEvolutionMessage(payload) {
   const data = payload?.data || payload;
@@ -555,6 +851,168 @@ async function saveOutboundMessage(event, body) {
       (instance_name, remote_jid, sender_name, direction, body, raw_payload)
      VALUES ($1, $2, $3, 'outbound', $4, '{}'::jsonb)`,
     [event.instanceName, event.remoteJid, "bot", body],
+  );
+}
+
+async function handleMonitorGroupCommand(event) {
+  if (!event.remoteJid?.endsWith("@g.us")) return false;
+
+  const settings = await getAppSetting("monitor_group", {});
+  if (!settings?.enabled || settings.groupJid !== event.remoteJid) return false;
+
+  const command = normalizeMonitorCommand(event.text);
+  if (!command) return true;
+
+  if (command === "status") {
+    const message = await buildAdsStatusMessage();
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+  } else if (command.type === "tds-credit-all") {
+    const message = await transferCreditsToAllTdsResellers(command.amount);
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+  } else if (command.type === "tds-credit-status") {
+    const message = await buildTdsCreditsStatusMessage(command.username);
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+  }
+
+  return true;
+}
+
+function normalizeMonitorCommand(text) {
+  const normalized = normalizeText(text);
+  if ([
+    "STATUS",
+    "STATUS ADS",
+    "ADS STATUS",
+    "RESUMO",
+    "RESUMO ADS",
+    "POSTAR STATUS",
+    "POSTA STATUS",
+    "MANDA STATUS",
+  ].includes(normalized)) return "status";
+
+  const creditMatch = normalized.match(/^CREDITOS?\s+(\d+(?:[.,]\d+)?)\s+(TODOS|TODAS|TDS)$/);
+  if (creditMatch) {
+    return {
+      type: "tds-credit-all",
+      amount: parseMoney(creditMatch[1]),
+    };
+  }
+
+  if (["QUANTOS CREDITOS", "QUANTO CREDITO", "CREDITOS", "CREDITOS TDS"].includes(normalized)) {
+    return { type: "tds-credit-status", username: "" };
+  }
+
+  const creditStatusMatch = normalized.match(/^(?:QUANTOS?\s+CREDITOS?|CREDITOS?)\s+([A-Z0-9_]+)$/);
+  if (creditStatusMatch) {
+    return {
+      type: "tds-credit-status",
+      username: creditStatusMatch[1].toLowerCase(),
+    };
+  }
+
+  return null;
+}
+
+async function buildAdsStatusMessage(date = getTheBestDate()) {
+  const stats = await getExternalAdsStatsMap(date);
+  const lines = [`Status ADS - ${formatShortDate(date)}`, ""];
+
+  for (const campaign of EXTERNAL_ADS_CAMPAIGNS) {
+    const item = stats.get(campaign.key) || {};
+    lines.push(
+      campaign.label,
+      `Leads: ${formatCount(item.conversationsStarted)}`,
+      `Testes: ${formatCount(item.tests)}`,
+      `Compras: ${formatCount(item.sales)}`,
+      "",
+    );
+  }
+
+  return lines.join("\n").trim();
+}
+
+async function transferCreditsToAllTdsResellers(amount) {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return "Nao consegui entender a quantidade de creditos.";
+  }
+  if (amount > 50) {
+    return "Por seguranca, o limite pelo grupo e 50 creditos por revenda.";
+  }
+
+  const resellers = await fetchTdsResellers();
+  if (!resellers.length) return "Nenhuma revenda TDS encontrada para creditar.";
+
+  const successes = [];
+  const failures = [];
+
+  for (const reseller of resellers) {
+    try {
+      await transferTheBestCredits(reseller.id, amount);
+      successes.push(reseller.username);
+    } catch (error) {
+      console.error("tds credit transfer failed", reseller.username, error);
+      failures.push(`${reseller.username}: ${String(error.message || error).slice(0, 90)}`);
+    }
+  }
+
+  const lines = [
+    `Credito TDS concluido`,
+    `Valor: ${formatDecimal(amount)} por revenda`,
+    `Sucesso: ${successes.length}/${resellers.length}`,
+  ];
+
+  if (successes.length) lines.push("", `Creditadas: ${successes.join(", ")}`);
+  if (failures.length) lines.push("", "Falhas:", ...failures);
+  return lines.join("\n");
+}
+
+async function buildTdsCreditsStatusMessage(username = "") {
+  const resellers = await fetchTdsResellers();
+  const filter = String(username || "").toLowerCase().trim();
+  const items = filter
+    ? resellers.filter((reseller) => reseller.username.toLowerCase().includes(filter))
+    : resellers;
+
+  if (!items.length) {
+    return filter
+      ? `Nao encontrei revenda TDS com "${filter}".`
+      : "Nenhuma revenda TDS encontrada.";
+  }
+
+  if (items.length === 1) {
+    const item = items[0];
+    return [
+      `Creditos TDS`,
+      `${item.username}: ${formatDecimal(item.credits)}`,
+    ].join("\n");
+  }
+
+  const total = items.reduce((sum, item) => sum + Number(item.credits || 0), 0);
+  const lines = [
+    `Creditos TDS`,
+    `Revendas: ${items.length}`,
+    `Total: ${formatDecimal(total)}`,
+    "",
+    ...items.map((item) => `${item.username}: ${formatDecimal(item.credits)}`),
+  ];
+  return lines.join("\n");
+}
+
+async function getAppSetting(key, fallback = null) {
+  const result = await db.query("SELECT value FROM app_settings WHERE key = $1", [key]);
+  return result.rows[0]?.value ?? fallback;
+}
+
+async function setAppSetting(key, value) {
+  await db.query(
+    `INSERT INTO app_settings (key, value)
+     VALUES ($1, $2::jsonb)
+     ON CONFLICT (key)
+     DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [key, JSON.stringify(value || {})],
   );
 }
 
@@ -817,21 +1275,46 @@ async function parseAdsWorkbook(buffer, options = {}) {
   if (!rows.length) return { text: "", entries: 0, source };
 
   const headers = Object.keys(rows[0]);
-  const campaignKey = findHeader(headers, ["nome da campanha", "campaign name", "campanha"]);
-  const spentKey = findHeader(headers, ["valor usado", "amount spent", "spent"]);
+  const campaignKey = findHeader(headers, [
+    "nome da campanha",
+    "nome do conjunto de anuncios",
+    "campaign name",
+    "ad set name",
+    "campaign",
+    "campanha",
+  ]);
+  const spentKey = findHeader(headers, [
+    "valor usado",
+    "amount spent",
+    "amount spent usd",
+    "amount spent brl",
+    "valor gasto",
+    "gasto",
+    "spent",
+  ]);
   const conversationsKey = findHeader(headers, [
     "conversas por mensagem iniciadas",
+    "conversas iniciadas",
     "messaging conversations started",
+    "messaging conversations started 7 day click",
     "conversations started",
   ]);
   const budgetKey = findHeader(headers, [
     "orcamento do conjunto de anuncios",
     "or amento do conjunto",
     "ora amento do conjunto",
+    "orcamento",
     "ad set budget",
     "budget",
   ]);
-  const dateKey = findHeader(headers, ["inicio dos relatorios", "início dos relatórios", "reporting starts"]);
+  const dateKey = findHeader(headers, [
+    "inicio dos relatorios",
+    "início dos relatórios",
+    "reporting starts",
+    "reporting start",
+    "data de inicio",
+    "inicio",
+  ]);
 
   const sourceCurrency = detectMoneyHeaderCurrency(spentKey) || detectMoneyHeaderCurrency(budgetKey) || "USD";
   const exchange = sourceCurrency === "USD" ? await getUsdToBrlRate() : null;
@@ -851,7 +1334,7 @@ async function parseAdsWorkbook(buffer, options = {}) {
     const spent = parseNumberCell(row[spentKey]);
     const budget = parseNumberCell(row[budgetKey]);
     const conversationsStarted = parseCountCell(row[conversationsKey]);
-    const sourceValue = spentKey ? spent : budget;
+    const sourceValue = spent > 0 ? spent : budget;
     const value = roundCurrencyUp(sourceCurrency === "USD" ? sourceValue * exchange.rate : sourceValue);
     const currency = "BRL";
     if (value <= 0) continue;
@@ -943,6 +1426,9 @@ function findHeader(headers, candidates) {
 }
 
 function isKnownMojibakeHeaderMatch(normalizedHeader, normalizedCandidate) {
+  if (normalizedCandidate === "NOME DO CONJUNTO DE ANUNCIOS") {
+    return normalizedHeader.includes("NOME DO CONJUNTO DE ANA NCIOS");
+  }
   if (normalizedCandidate === "INICIO DOS RELATORIOS") {
     return normalizedHeader.includes("INA CIO DOS RELATA RIOS");
   }
@@ -1020,11 +1506,19 @@ function formatDecimal(value) {
 
 async function getUsdToBrlRate() {
   const cacheKey = "exchange:USD-BRL:latest";
-  const cached = await redis.get(cacheKey);
-  if (cached) return JSON.parse(cached);
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch (error) {
+    console.error("exchange cache read failed", error);
+  }
 
   const exchange = await fetchUsdToBrlFromProviders();
-  await redis.set(cacheKey, JSON.stringify(exchange), "EX", 1800);
+  try {
+    await redis.set(cacheKey, JSON.stringify(exchange), "EX", 1800);
+  } catch (error) {
+    console.error("exchange cache write failed", error);
+  }
   return exchange;
 }
 
@@ -1175,9 +1669,10 @@ function buildAdsMessage(parsed, theBest = null) {
 
 function pushTheBestLines(lines, theBest, parsed = {}) {
   if (!theBest?.login) return;
+  const conversationsStarted = theBest.conversationsStarted || parsed.conversationsStarted;
   lines.push(
     `The Best (${theBest.login}):`,
-    `Conversas iniciadas: ${formatCount(parsed.conversationsStarted)}`,
+    `Conversas iniciadas: ${formatCount(conversationsStarted)}`,
     `Vendas: ${theBest.sales}`,
     `Testes: ${theBest.tests}`,
   );
@@ -1288,13 +1783,14 @@ function buildTheBestSummary(mapping, statsMap) {
   const login = mapping?.login_the_best?.trim();
   if (!login) return null;
 
-  const stats = statsMap.get(login.toLowerCase()) || { sales: 0, renewals: 0, tests: 0 };
+  const stats = statsMap.get(login.toLowerCase()) || { sales: 0, renewals: 0, tests: 0, conversationsStarted: 0 };
   return {
     login,
     campaign: mapping.nome_campanha,
     sales: stats.sales || 0,
     renewals: stats.renewals || 0,
     tests: stats.tests || 0,
+    conversationsStarted: stats.conversationsStarted || 0,
   };
 }
 
@@ -1330,6 +1826,77 @@ async function getTheBestStatsMap(date) {
   return statsObjectToMap(stats);
 }
 
+async function fetchTdsResellers() {
+  const data = await fetchTheBestJson("/resellers/?page=1&per_page=100");
+  const results = Array.isArray(data.results) ? data.results : [];
+  return results
+    .filter((item) => String(item.username || "").toLowerCase().startsWith("tds"))
+    .map(normalizeReseller)
+    .sort((a, b) => a.username.localeCompare(b.username, "pt-BR", { numeric: true }));
+}
+
+async function findTdsResellerById(id) {
+  const resellers = await fetchTdsResellers();
+  return resellers.find((item) => item.id === id) || null;
+}
+
+function normalizeReseller(item) {
+  return {
+    id: Number(item.id),
+    username: String(item.username || ""),
+    email: String(item.email || ""),
+    credits: Number(item.credits || 0),
+    ownerUsername: String(item.owner_username || ""),
+    lastLogin: item.last_login || null,
+  };
+}
+
+async function transferTheBestCredits(resellerId, amount) {
+  const response = await fetch(`${THE_BEST_BASE_URL}/resellers/${encodeURIComponent(resellerId)}/transfer-credits/`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "Api-Key": config.theBestApiKey,
+      "User-Agent": "MegaApp-ADS/1.0",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ amount }),
+  });
+
+  const text = await response.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { body: text };
+  }
+
+  if (!response.ok) {
+    throw new Error(`The Best transfer failed: ${response.status} ${JSON.stringify(data)}`);
+  }
+
+  return data;
+}
+
+async function fetchTheBestJson(path) {
+  if (!config.theBestApiKey) throw new Error("THE_BEST_API_KEY not configured");
+
+  const response = await fetch(`${THE_BEST_BASE_URL}${path}`, {
+    headers: {
+      "Api-Key": config.theBestApiKey,
+      Accept: "application/json",
+      "User-Agent": "MegaApp-ADS/1.0",
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`The Best failed: ${response.status} ${body}`);
+  }
+
+  return response.json();
+}
+
 async function getTheBestStatsMapSafe(date) {
   try {
     return { statsMap: await getTheBestStatsMap(date), statsError: null };
@@ -1337,6 +1904,45 @@ async function getTheBestStatsMapSafe(date) {
     console.error("the best stats failed", error);
     return { statsMap: new Map(), statsError: String(error.message || error) };
   }
+}
+
+async function getAdsStatsMapSafe(date) {
+  const { statsMap, statsError } = await getTheBestStatsMapSafe(date);
+  try {
+    const externalStatsMap = await getExternalAdsStatsMap(date);
+    for (const [key, stats] of externalStatsMap.entries()) {
+      if (!statsMap.has(key)) statsMap.set(key, stats);
+    }
+  } catch (error) {
+    console.error("external ads stats failed", error);
+    return {
+      statsMap,
+      statsError: [statsError, `Webhook ADS: ${String(error.message || error)}`].filter(Boolean).join(" | ") || null,
+    };
+  }
+  return { statsMap, statsError };
+}
+
+async function getExternalAdsStatsMap(date) {
+  const result = await db.query(
+    `SELECT campaign_key, campaign_label, sales, renewals, tests, conversations_started
+     FROM external_ads_stats
+     WHERE stats_date = $1::date`,
+    [date],
+  );
+
+  const stats = new Map();
+  for (const row of result.rows) {
+    stats.set(String(row.campaign_key).toLowerCase(), {
+      campaign: row.campaign_label,
+      sales: Number(row.sales || 0),
+      renewals: Number(row.renewals || 0),
+      tests: Number(row.tests || 0),
+      conversationsStarted: Number(row.conversations_started || 0),
+      source: "webhook",
+    });
+  }
+  return stats;
 }
 
 async function fetchTheBestStatsForKey(apiKey, date) {

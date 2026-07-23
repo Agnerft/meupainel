@@ -131,6 +131,59 @@ docker compose logs -f orchestrator
 
 Depois acesse a Evolution API, crie uma instancia, leia o QR Code e conecte seu WhatsApp.
 
+## Webhooks ADS sem API
+
+Para alimentar resultados de quem nao tem API, envie eventos do outro painel para:
+
+```text
+POST https://meupainel.megaapp.tech/webhooks/ads/angelo/teste
+POST https://meupainel.megaapp.tech/webhooks/ads/angelo/compra
+POST https://meupainel.megaapp.tech/webhooks/ads/angelo/lead
+POST https://meupainel.megaapp.tech/webhooks/ads/rafa/teste
+POST https://meupainel.megaapp.tech/webhooks/ads/rafa/compra
+POST https://meupainel.megaapp.tech/webhooks/ads/rafa/lead
+```
+
+Use o mesmo `ORCHESTRATOR_WEBHOOK_SECRET` no header `x-orchestrator-secret`, ou no campo/query `secret`.
+
+Payload minimo por evento:
+
+```json
+{
+  "secret": "SEU_ORCHESTRATOR_WEBHOOK_SECRET",
+  "data": "2026-07-21"
+}
+```
+
+Cada chamada soma 1 lead, 1 teste ou 1 venda na data enviada. Para enviar lote, mande `quantidade`:
+
+```json
+{
+  "secret": "SEU_ORCHESTRATOR_WEBHOOK_SECRET",
+  "data": "2026-07-21",
+  "quantidade": 3
+}
+```
+
+Tambem existe o modo de total do dia, que substitui os numeros salvos:
+
+```text
+POST https://meupainel.megaapp.tech/webhooks/ads/angelo
+POST https://meupainel.megaapp.tech/webhooks/ads/rafa
+```
+
+```json
+{
+  "secret": "SEU_ORCHESTRATOR_WEBHOOK_SECRET",
+  "data": "2026-07-21",
+  "vendas": 3,
+  "renovacoes": 0,
+  "testes": 8
+}
+```
+
+O painel salva um registro por ADS e data.
+
 ## Observacoes importantes
 
 - Revogue qualquer chave OpenAI que tenha sido colada em chat, print ou arquivo inseguro.
