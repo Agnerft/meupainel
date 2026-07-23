@@ -859,6 +859,7 @@ async function saveOutboundMessage(event, body) {
 
 async function handleMonitorGroupCommand(event) {
   if (!event.remoteJid?.endsWith("@g.us")) return false;
+  if (isGeneratedMonitorMessage(event.text)) return true;
 
   const settings = await getAppSetting("monitor_group", {});
   if (!settings?.enabled || settings.groupJid !== event.remoteJid) return false;
@@ -889,7 +890,7 @@ async function handleMonitorGroupCommand(event) {
 
 function normalizeMonitorCommand(text) {
   const normalized = normalizeText(text);
-  const rankMatch = normalized.match(/^(?:RANK|RANKING)\s+(?:REVENDAS|TDS)(?:\s+(.+))?$/);
+  const rankMatch = String(text || "").trim().match(/^(?:rank|ranking)\s+(?:revendas|tds)(?:\s+(hoje|ontem|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?))?$/i);
   if (rankMatch) {
     return {
       type: "tds-rank",
@@ -929,6 +930,14 @@ function normalizeMonitorCommand(text) {
   }
 
   return null;
+}
+
+function isGeneratedMonitorMessage(text) {
+  const value = String(text || "").trim();
+  return /^Rank revendas\s+-/i.test(value) ||
+    /^Status ADS\s+-/i.test(value) ||
+    /^Creditos TDS\b/i.test(value) ||
+    /^Credito TDS concluido\b/i.test(value);
 }
 
 function parseMonitorDate(text) {
