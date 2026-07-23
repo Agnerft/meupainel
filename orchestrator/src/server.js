@@ -1077,40 +1077,15 @@ async function buildTdsRankMessage(date = getTheBestDate()) {
   );
 
   if (!items.length) {
-    return `📊 **Ranking das Revendas — ${formatShortDate(normalizedDate)}**\n\nNenhum teste, venda ou renovação encontrado.`;
+    return "Nenhum teste, venda ou renovação encontrado.";
   }
 
-  const totals = items.reduce((acc, item) => ({
-    sales: acc.sales + item.sales,
-    renewals: acc.renewals + item.renewals,
-    tests: acc.tests + item.tests,
-  }), { sales: 0, renewals: 0, tests: 0 });
-
-  const lines = [
-    `📊 **Ranking das Revendas — ${formatShortDate(normalizedDate)}**`,
-    "",
-    "**📈 Resultado Geral do Dia**",
-    "",
-    `- 🧪 **${formatCount(totals.tests)}** ${pluralize(totals.tests, "Teste", "Testes")}`,
-    `- 💰 **${formatCount(totals.sales)}** ${pluralize(totals.sales, "Venda", "Vendas")}`,
-    `- 🔄 **${formatCount(totals.renewals)}** ${pluralize(totals.renewals, "Renovação", "Renovações")}`,
-    "",
-    "🏆 **Ranking**",
-    "",
-    ...items.slice(0, 30).flatMap((item, index) => [
-      `${formatRankPosition(index)} **${index + 1}º | ${item.username}**`,
-      `🧪 ${formatCount(item.tests)} ${pluralize(item.tests, "Teste", "Testes")} • 💰 ${formatCount(item.sales)} ${pluralize(item.sales, "Venda", "Vendas")} • 🔄 ${formatCount(item.renewals)} ${pluralize(item.renewals, "Renovação", "Renovações")}`,
-      "",
-    ]),
-  ];
+  const lines = items.slice(0, 30).map((item, index) =>
+    `${index + 1}º **${item.username}** — 🧪 ${formatCount(item.tests)} ${pluralize(item.tests, "Teste", "Testes")} | 💰 ${formatCount(item.sales)} ${pluralize(item.sales, "Venda", "Vendas")} | 🔄 ${formatCount(item.renewals)} ${pluralize(item.renewals, "Renovação", "Renovações")}`
+  );
 
   if (items.length > 30) lines.push("", `+${items.length - 30} revendas com movimento.`);
-  lines.push("👏 Parabéns a todas as revendas pelo trabalho! Vamos em busca de ainda mais testes, vendas e renovações! 🚀");
   return lines.join("\n");
-}
-
-function formatRankPosition(index) {
-  return ["🥇", "🥈", "🥉"][index] || "";
 }
 
 function pluralize(value, singular, plural) {
