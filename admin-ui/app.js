@@ -461,7 +461,7 @@ async function previewAds() {
     adsPreview = await api("ads/preview", {
       method: "POST",
       body: JSON.stringify({ text }),
-      timeoutMs: 30000,
+      timeoutMs: 90000,
     });
     renderAdsPreview(adsPreview);
     const entries = adsPreview.entries || [];

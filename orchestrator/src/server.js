@@ -261,10 +261,13 @@ app.post("/admin/ads/preview", requireAdmin, async (req, res) => {
   const rawInput = String(req.body?.text || "").trim();
   if (!rawInput) return res.status(400).json({ error: "text is required" });
 
-  const groups = await findEvolutionGroups("ADS");
   const mappings = mergeAdsMappings(DEFAULT_ADS_MAPPINGS, extractAdsMappings(rawInput));
   const statsDate = getAdsStatsDate(rawInput);
-  const { statsMap, statsError } = await getAdsStatsMapSafe(statsDate);
+  const [groups, statsResult] = await Promise.all([
+    findEvolutionGroups("ADS"),
+    getAdsStatsMapSafe(statsDate),
+  ]);
+  const { statsMap, statsError } = statsResult;
   const entries = buildAdsPreviewEntries(rawInput, groups, mappings, statsMap);
   const first = entries[0];
 
