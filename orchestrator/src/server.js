@@ -859,7 +859,6 @@ async function saveOutboundMessage(event, body) {
 
 async function handleMonitorGroupCommand(event) {
   if (!event.remoteJid?.endsWith("@g.us")) return false;
-  if (event.fromMe) return true;
   if (isGeneratedMonitorMessage(event.text)) return true;
 
   const settings = await getAppSetting("monitor_group", {});
