@@ -1334,7 +1334,7 @@ async function parseAdsWorkbook(buffer, options = {}) {
     const spent = parseNumberCell(row[spentKey]);
     const budget = parseNumberCell(row[budgetKey]);
     const conversationsStarted = parseCountCell(row[conversationsKey]);
-    const sourceValue = spent > 0 ? spent : budget;
+    const sourceValue = spentKey ? spent : budget;
     const value = roundCurrencyUp(sourceCurrency === "USD" ? sourceValue * exchange.rate : sourceValue);
     const currency = "BRL";
     if (value <= 0) continue;
