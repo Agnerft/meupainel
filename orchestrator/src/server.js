@@ -878,6 +878,10 @@ async function handleMonitorGroupCommand(event) {
     const message = await buildTdsCreditsStatusMessage(command.username);
     await sendWhatsAppText(event.instanceName, event.remoteJid, message);
     await saveOutboundMessage(event, message);
+  } else if (command.type === "tds-rank") {
+    const message = await buildTdsRankMessage(command.date);
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
   }
 
   return true;
@@ -885,6 +889,14 @@ async function handleMonitorGroupCommand(event) {
 
 function normalizeMonitorCommand(text) {
   const normalized = normalizeText(text);
+  const rankMatch = normalized.match(/^(?:RANK|RANKING)\s+(?:REVENDAS|TDS)(?:\s+(.+))?$/);
+  if (rankMatch) {
+    return {
+      type: "tds-rank",
+      date: parseMonitorDate(text) || getTheBestDate(),
+    };
+  }
+
   if ([
     "STATUS",
     "STATUS ADS",
@@ -917,6 +929,30 @@ function normalizeMonitorCommand(text) {
   }
 
   return null;
+}
+
+function parseMonitorDate(text) {
+  const normalized = normalizeText(text);
+  if (normalized.includes("ONTEM")) return shiftDate(getTheBestDate(), -1);
+  if (normalized.includes("HOJE")) return getTheBestDate();
+
+  const dateMatch = String(text || "").match(/(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?/);
+  if (!dateMatch) return null;
+
+  const currentYear = Number(getTheBestDate().slice(0, 4));
+  const yearValue = dateMatch[3] ? Number(dateMatch[3]) : currentYear;
+  const year = yearValue < 100 ? 2000 + yearValue : yearValue;
+  const month = Number(dateMatch[2]);
+  const day = Number(dateMatch[1]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function shiftDate(date, days) {
+  const [year, month, day] = String(date || getTheBestDate()).split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + days));
+  return shifted.toISOString().slice(0, 10);
 }
 
 async function buildAdsStatusMessage(date = getTheBestDate()) {
@@ -1001,6 +1037,55 @@ async function buildTdsCreditsStatusMessage(username = "") {
     "",
     ...items.map((item) => `${item.username}: ${formatDecimal(item.credits)}`),
   ];
+  return lines.join("\n");
+}
+
+async function buildTdsRankMessage(date = getTheBestDate()) {
+  const normalizedDate = normalizeDateCell(date) || getTheBestDate();
+  const [resellers, statsMap] = await Promise.all([
+    fetchTdsResellers(),
+    getTheBestStatsMap(normalizedDate),
+  ]);
+
+  const items = resellers
+    .map((reseller) => {
+      const stats = statsMap.get(reseller.username.toLowerCase()) || {};
+      return {
+        username: reseller.username,
+        sales: Number(stats.sales || 0),
+        renewals: Number(stats.renewals || 0),
+        tests: Number(stats.tests || 0),
+      };
+    })
+    .map((item) => ({ ...item, total: item.sales + item.renewals + item.tests }))
+    .filter((item) => item.total > 0)
+    .sort((a, b) =>
+      b.sales - a.sales ||
+      b.tests - a.tests ||
+      b.renewals - a.renewals ||
+      a.username.localeCompare(b.username, "pt-BR", { numeric: true })
+    );
+
+  if (!items.length) {
+    return `Rank revendas - ${formatShortDate(normalizedDate)}\n\nNenhum teste, venda ou renovacao encontrado.`;
+  }
+
+  const totals = items.reduce((acc, item) => ({
+    sales: acc.sales + item.sales,
+    renewals: acc.renewals + item.renewals,
+    tests: acc.tests + item.tests,
+  }), { sales: 0, renewals: 0, tests: 0 });
+
+  const lines = [
+    `Rank revendas - ${formatShortDate(normalizedDate)}`,
+    `Total: ${formatCount(totals.tests)} testes | ${formatCount(totals.sales)} vendas | ${formatCount(totals.renewals)} renovacoes`,
+    "",
+    ...items.slice(0, 30).map((item, index) =>
+      `${index + 1}. ${item.username}: ${formatCount(item.tests)} testes | ${formatCount(item.sales)} vendas | ${formatCount(item.renewals)} renovacoes`
+    ),
+  ];
+
+  if (items.length > 30) lines.push("", `+${items.length - 30} revendas com movimento.`);
   return lines.join("\n");
 }
 
