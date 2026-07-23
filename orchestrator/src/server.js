@@ -1674,11 +1674,17 @@ function pushTheBestLines(lines, theBest, parsed = {}) {
   if (!theBest?.login) return;
   const conversationsStarted = theBest.conversationsStarted || parsed.conversationsStarted;
   lines.push(
-    `The Best (${theBest.login}):`,
+    `${formatStatsSourceLabel(theBest.login)}:`,
     `Conversas iniciadas: ${formatCount(conversationsStarted)}`,
     `Vendas: ${theBest.sales}`,
     `Testes: ${theBest.tests}`,
   );
+}
+
+function formatStatsSourceLabel(login) {
+  const normalized = String(login || "").trim().toLowerCase();
+  if (["rafa", "angelo"].includes(normalized)) return `NATV (${normalized})`;
+  return `The Best (${login})`;
 }
 
 function buildAdsIntro(label, date) {
