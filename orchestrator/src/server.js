@@ -1877,7 +1877,8 @@ function buildAdsIntro(label, date) {
 }
 
 function getTurnGreeting(now = new Date()) {
-  const hour = now.getHours();
+  const localNow = new Date(now.getTime() + config.theBestTimezoneOffset * 60 * 60 * 1000);
+  const hour = localNow.getUTCHours();
   if (hour < 5) return "Boa madrugada";
   if (hour < 12) return "Bom dia";
   if (hour < 18) return "Boa tarde";
