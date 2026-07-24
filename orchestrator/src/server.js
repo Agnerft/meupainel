@@ -867,7 +867,11 @@ async function handleMonitorGroupCommand(event) {
   const command = normalizeMonitorCommand(event.text);
   if (!command) return true;
 
-  if (command === "status") {
+  if (command === "menu") {
+    const message = buildMonitorMenuMessage();
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+  } else if (command === "status") {
     const message = await buildAdsStatusMessage();
     await sendWhatsAppText(event.instanceName, event.remoteJid, message);
     await saveOutboundMessage(event, message);
@@ -897,6 +901,8 @@ function normalizeMonitorCommand(text) {
       date: parseMonitorDate(text) || getTheBestDate(),
     };
   }
+
+  if (["MENU", "COMANDOS", "AJUDA", "HELP", "OPCOES", "OPCOES DO BOT"].includes(normalized)) return "menu";
 
   if ([
     "STATUS",
@@ -932,10 +938,35 @@ function normalizeMonitorCommand(text) {
   return null;
 }
 
+function buildMonitorMenuMessage() {
+  return [
+    "Menu de comandos",
+    "",
+    "status",
+    "Mostra o status dos ADS monitorados.",
+    "",
+    "quantos creditos",
+    "Lista os creditos das revendas TDS.",
+    "",
+    "creditos 5 todos",
+    "Adiciona 5 creditos para todas as revendas TDS. Limite pelo grupo: 50.",
+    "",
+    "creditos tdsusuario",
+    "Consulta os creditos de uma revenda especifica.",
+    "",
+    "rank revendas",
+    "Mostra o ranking das revendas TDS de hoje.",
+    "",
+    "rank revendas ontem",
+    "Mostra o ranking do dia anterior.",
+  ].join("\n");
+}
+
 function isGeneratedMonitorMessage(text) {
   const value = String(text || "").trim();
   return /^Rank revendas\s+-/i.test(value) ||
     /^📊\s*\**Ranking das Revendas/i.test(value) ||
+    /^Menu de comandos\b/i.test(value) ||
     /^Status ADS\s+-/i.test(value) ||
     /^Creditos TDS\b/i.test(value) ||
     /^Credito TDS concluido\b/i.test(value);
