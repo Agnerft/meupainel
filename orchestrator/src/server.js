@@ -927,12 +927,12 @@ function normalizeMonitorCommand(text) {
     };
   }
 
-  const creditOneMatch = normalized.match(/^CREDITOS?\s+(\d+(?:[.,]\d+)?)\s+([A-Z0-9_]+)$/);
+  const creditOneMatch = normalized.match(/^CREDITOS?\s+(\d+(?:[.,]\d+)?)\s+(?:PARA\s+|PRA\s+|PRO\s+|NO\s+|NA\s+)?(.+)$/);
   if (creditOneMatch) {
     return {
       type: "tds-credit-one",
       amount: parseMoney(creditOneMatch[1]),
-      username: creditOneMatch[2].toLowerCase(),
+      username: normalizeMonitorUsername(creditOneMatch[2]),
     };
   }
 
@@ -949,6 +949,10 @@ function normalizeMonitorCommand(text) {
   }
 
   return null;
+}
+
+function normalizeMonitorUsername(value) {
+  return normalizeText(value).replace(/\s+/g, "").toLowerCase();
 }
 
 function buildMonitorMenuMessage() {
