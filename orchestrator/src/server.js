@@ -879,6 +879,10 @@ async function handleMonitorGroupCommand(event) {
     const message = await transferCreditsToAllTdsResellers(command.amount);
     await sendWhatsAppText(event.instanceName, event.remoteJid, message);
     await saveOutboundMessage(event, message);
+  } else if (command.type === "tds-credit-one") {
+    const message = await transferCreditsToTdsReseller(command.username, command.amount);
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
   } else if (command.type === "tds-credit-status") {
     const message = await buildTdsCreditsStatusMessage(command.username);
     await sendWhatsAppText(event.instanceName, event.remoteJid, message);
@@ -923,6 +927,15 @@ function normalizeMonitorCommand(text) {
     };
   }
 
+  const creditOneMatch = normalized.match(/^CREDITOS?\s+(\d+(?:[.,]\d+)?)\s+([A-Z0-9_]+)$/);
+  if (creditOneMatch) {
+    return {
+      type: "tds-credit-one",
+      amount: parseMoney(creditOneMatch[1]),
+      username: creditOneMatch[2].toLowerCase(),
+    };
+  }
+
   if (["QUANTOS CREDITOS", "QUANTO CREDITO", "CREDITOS", "CREDITOS TDS"].includes(normalized)) {
     return { type: "tds-credit-status", username: "" };
   }
@@ -950,6 +963,9 @@ function buildMonitorMenuMessage() {
     "",
     "creditos 5 todos",
     "Adiciona 5 creditos para todas as revendas TDS. Limite pelo grupo: 50.",
+    "",
+    "creditos 5 tdsrobson",
+    "Adiciona 5 creditos para uma revenda TDS especifica.",
     "",
     "creditos tdsusuario",
     "Consulta os creditos de uma revenda especifica.",
@@ -1047,6 +1063,43 @@ async function transferCreditsToAllTdsResellers(amount) {
   if (successes.length) lines.push("", `Creditadas: ${successes.join(", ")}`);
   if (failures.length) lines.push("", "Falhas:", ...failures);
   return lines.join("\n");
+}
+
+async function transferCreditsToTdsReseller(username, amount) {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return "Nao consegui entender a quantidade de creditos.";
+  }
+  if (amount > 50) {
+    return "Por seguranca, o limite pelo grupo e 50 creditos por revenda.";
+  }
+
+  const resellers = await fetchTdsResellers();
+  const filter = String(username || "").toLowerCase().trim();
+  const matches = resellers.filter((reseller) => reseller.username.toLowerCase().includes(filter));
+
+  if (!matches.length) return `Nao encontrei revenda TDS com "${filter}".`;
+  if (matches.length > 1) {
+    return [
+      `Encontrei mais de uma revenda com "${filter}".`,
+      "Use o usuario mais completo:",
+      ...matches.map((reseller) => reseller.username),
+    ].join("\n");
+  }
+
+  const reseller = matches[0];
+  try {
+    await transferTheBestCredits(reseller.id, amount);
+    const updated = await findTdsResellerById(reseller.id);
+    return [
+      "Credito TDS concluido",
+      `Revenda: ${updated?.username || reseller.username}`,
+      `Valor: ${formatDecimal(amount)}`,
+      `Saldo atual: ${formatDecimal(updated?.credits ?? reseller.credits)}`,
+    ].join("\n");
+  } catch (error) {
+    console.error("tds single credit transfer failed", reseller.username, error);
+    return `Falha ao creditar ${reseller.username}: ${String(error.message || error).slice(0, 140)}`;
+  }
 }
 
 async function buildTdsCreditsStatusMessage(username = "") {
