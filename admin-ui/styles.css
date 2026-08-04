@@ -2076,6 +2076,242 @@ button:disabled::after {
   }
 }
 
+/* Light mode: same palette, brighter atmosphere */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page: #eef4f8;
+  --sidebar: rgba(255, 255, 255, 0.62);
+  --sidebar-2: rgba(225, 200, 215, 0.38);
+  --card: rgba(255, 255, 255, 0.76);
+  --card-raised: rgba(255, 255, 255, 0.62);
+  --field: rgba(255, 255, 255, 0.74);
+  --ink: #102033;
+  --muted: rgba(38, 66, 90, 0.68);
+  --soft: rgba(134, 168, 207, 0.16);
+  --line: rgba(38, 66, 90, 0.14);
+  --line-strong: rgba(38, 66, 90, 0.26);
+  --accent: #5f86af;
+  --accent-dark: #b16e9a;
+  --blue: #86a8cf;
+  --lime: #e1c8d7;
+  --coral: #c38eb4;
+  --amber: #936987;
+  --red: #b4235b;
+  --green: #147a6c;
+  --shadow: 0 26px 70px rgba(38, 66, 90, 0.18);
+  --shadow-soft: 0 16px 38px rgba(38, 66, 90, 0.12);
+  --focus-ring: 0 0 0 4px rgba(195, 142, 180, 0.2);
+}
+
+:root[data-theme="light"] body {
+  background:
+    linear-gradient(180deg, rgba(238, 244, 248, 0.16), rgba(238, 244, 248, 0.9)),
+    radial-gradient(circle at 16% 14%, rgba(134, 168, 207, 0.42), transparent 23rem),
+    radial-gradient(circle at 58% 32%, rgba(225, 200, 215, 0.5), transparent 25rem),
+    radial-gradient(circle at 84% 80%, rgba(195, 142, 180, 0.34), transparent 28rem),
+    linear-gradient(145deg, #edf5fa 0%, #cddcec 45%, #e1c8d7 118%);
+}
+
+:root[data-theme="light"] body::before {
+  background:
+    linear-gradient(90deg, rgba(38, 66, 90, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(38, 66, 90, 0.035) 1px, transparent 1px);
+}
+
+:root[data-theme="light"] .appShell {
+  border-color: rgba(255, 255, 255, 0.62);
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.34)),
+    rgba(238, 244, 248, 0.5);
+  box-shadow: 0 34px 100px rgba(38, 66, 90, 0.22);
+}
+
+:root[data-theme="light"] .sidebar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.58), transparent 46%),
+    rgba(38, 66, 90, 0.12);
+  color: #102033;
+  box-shadow: inset -1px 0 0 rgba(38, 66, 90, 0.12);
+}
+
+:root[data-theme="light"] .brand {
+  border-color: rgba(38, 66, 90, 0.12);
+}
+
+:root[data-theme="light"] .brand span,
+:root[data-theme="light"] .topbar .eyebrow {
+  color: #a05d8c;
+}
+
+:root[data-theme="light"] .navItem {
+  color: rgba(38, 66, 90, 0.72);
+}
+
+:root[data-theme="light"] .navItem span {
+  color: rgba(160, 93, 140, 0.6);
+}
+
+:root[data-theme="light"] .navItem:hover,
+:root[data-theme="light"] .navItem.active {
+  background: rgba(255, 255, 255, 0.68);
+  color: #102033;
+}
+
+:root[data-theme="light"] .authPanel {
+  border-color: rgba(38, 66, 90, 0.12);
+}
+
+:root[data-theme="light"] .authPanel label {
+  color: rgba(38, 66, 90, 0.72);
+}
+
+:root[data-theme="light"] .authPanel input {
+  background: rgba(255, 255, 255, 0.7);
+  color: #102033;
+}
+
+:root[data-theme="light"] .topbar {
+  color: #102033;
+  background:
+    radial-gradient(circle at 8% 12%, rgba(225, 200, 215, 0.58), transparent 17rem),
+    radial-gradient(circle at 74% 50%, rgba(134, 168, 207, 0.42), transparent 18rem),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.36));
+}
+
+:root[data-theme="light"] .topbar p,
+:root[data-theme="light"] .whatsappIndicator small {
+  color: rgba(38, 66, 90, 0.66);
+}
+
+:root[data-theme="light"] .whatsappIndicator,
+:root[data-theme="light"] .topbar .secondaryLink,
+:root[data-theme="light"] .topbar .smallButton {
+  border-color: rgba(38, 66, 90, 0.14);
+  background: rgba(255, 255, 255, 0.56);
+  color: #102033;
+}
+
+:root[data-theme="light"] .metrics article,
+:root[data-theme="light"] .statusStrip,
+:root[data-theme="light"] .adsPanel,
+:root[data-theme="light"] .panel,
+:root[data-theme="light"] .batchPanel,
+:root[data-theme="light"] .dispatchHistoryPanel {
+  border-color: rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.52);
+}
+
+:root[data-theme="light"] .metrics article:nth-child(1) {
+  background: linear-gradient(145deg, #f2dbe7, #c38eb4);
+  color: #24172a;
+}
+
+:root[data-theme="light"] .metrics article:nth-child(2) {
+  background: linear-gradient(145deg, #b8cce4, #ead7e1);
+  color: #102033;
+}
+
+:root[data-theme="light"] .metrics article:nth-child(3) {
+  background: linear-gradient(145deg, #5d7f9f, #9bb9d8);
+  color: #f8fbff;
+}
+
+:root[data-theme="light"] .metrics article:nth-child(4) {
+  background: linear-gradient(145deg, #16324b, #26425a);
+  color: #f8fbff;
+}
+
+:root[data-theme="light"] input,
+:root[data-theme="light"] textarea,
+:root[data-theme="light"] select,
+:root[data-theme="light"] pre,
+:root[data-theme="light"] .replyBox {
+  border-color: rgba(38, 66, 90, 0.14);
+  background: rgba(255, 255, 255, 0.64);
+  color: #102033;
+}
+
+:root[data-theme="light"] .sectionKicker {
+  color: #a05d8c;
+}
+
+:root[data-theme="light"] .badge {
+  background: rgba(38, 66, 90, 0.12);
+  color: #26425a;
+}
+
+:root[data-theme="light"] .badge.outbound {
+  background: rgba(195, 142, 180, 0.18);
+  color: #8a4d78;
+}
+
+:root[data-theme="light"] .commandHelp,
+:root[data-theme="light"] .commandHelp code,
+:root[data-theme="light"] .adsBatchItem,
+:root[data-theme="light"] .reviewStats article,
+:root[data-theme="light"] .reviewTotals article,
+:root[data-theme="light"] .sendProgressStats article {
+  border-color: rgba(38, 66, 90, 0.12);
+  background: rgba(255, 255, 255, 0.48);
+}
+
+:root[data-theme="light"] .commandHelp span {
+  color: rgba(38, 66, 90, 0.66);
+}
+
+:root[data-theme="light"] .historyTotals article:nth-child(1) {
+  background: linear-gradient(145deg, rgba(242, 219, 231, 0.95), rgba(195, 142, 180, 0.9));
+  color: #24172a;
+}
+
+:root[data-theme="light"] .historyTotals article:nth-child(2) {
+  background: linear-gradient(145deg, rgba(184, 204, 228, 0.96), rgba(234, 215, 225, 0.9));
+  color: #102033;
+}
+
+:root[data-theme="light"] .historyTotals article:nth-child(3) {
+  background: linear-gradient(145deg, rgba(38, 66, 90, 0.94), rgba(134, 168, 207, 0.84));
+  color: #f8fbff;
+}
+
+:root[data-theme="light"] button,
+:root[data-theme="light"] .primaryLink,
+:root[data-theme="light"] .secondaryLink {
+  color: #ffffff;
+  border-color: rgba(38, 66, 90, 0.16);
+  background:
+    radial-gradient(circle at 86% 30%, rgba(225, 200, 215, 0.28), transparent 34%),
+    linear-gradient(135deg, #26425a, #a66b99);
+}
+
+:root[data-theme="light"] button:hover,
+:root[data-theme="light"] .primaryLink:hover,
+:root[data-theme="light"] .secondaryLink:hover {
+  color: #ffffff;
+  background:
+    radial-gradient(circle at 80% 34%, rgba(225, 200, 215, 0.36), transparent 34%),
+    linear-gradient(135deg, #31526e, #c38eb4);
+}
+
+@media (max-width: 720px) {
+  :root[data-theme="light"] body {
+    background:
+      radial-gradient(circle at 30% 0%, rgba(134, 168, 207, 0.38), transparent 18rem),
+      radial-gradient(circle at 90% 28%, rgba(195, 142, 180, 0.3), transparent 18rem),
+      #eef4f8;
+  }
+
+  :root[data-theme="light"] .sidebar {
+    background: rgba(255, 255, 255, 0.7);
+    border-color: rgba(38, 66, 90, 0.12);
+  }
+
+  :root[data-theme="light"] .appShell {
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
 /* Proportion polish */
 .metrics {
   grid-template-columns: minmax(230px, 1.15fr) repeat(3, minmax(190px, 0.95fr));
