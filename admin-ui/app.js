@@ -855,7 +855,7 @@ function formatDecimalNumber(value) {
 }
 
 function initTheme() {
-  const saved = localStorage.getItem("adsPanelTheme") || "light";
+  const saved = localStorage.getItem("adsPanelTheme") || "dark";
   document.documentElement.dataset.theme = saved;
   themeToggle.textContent = saved === "dark" ? "Claro" : "Escuro";
 }

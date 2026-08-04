@@ -1240,3 +1240,695 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
+/* Premium glass dashboard redesign */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #081421;
+  --sidebar: rgba(7, 18, 30, 0.74);
+  --sidebar-2: rgba(38, 66, 90, 0.44);
+  --card: rgba(18, 31, 47, 0.72);
+  --card-raised: rgba(255, 255, 255, 0.11);
+  --field: rgba(5, 14, 24, 0.44);
+  --ink: #f4f7fb;
+  --muted: rgba(225, 232, 241, 0.62);
+  --soft: rgba(255, 255, 255, 0.08);
+  --line: rgba(225, 200, 215, 0.16);
+  --line-strong: rgba(225, 200, 215, 0.28);
+  --accent: #86a8cf;
+  --accent-dark: #c38eb4;
+  --blue: #86a8cf;
+  --lime: #e1c8d7;
+  --coral: #c38eb4;
+  --amber: #e1c8d7;
+  --red: #ff8ba3;
+  --green: #9de7d7;
+  --shadow: 0 26px 80px rgba(0, 0, 0, 0.38);
+  --shadow-soft: 0 18px 44px rgba(0, 0, 0, 0.22);
+  --radius: 20px;
+  --radius-shell: 32px;
+  --focus-ring: 0 0 0 4px rgba(134, 168, 207, 0.2);
+}
+
+body {
+  padding: 34px;
+  background:
+    linear-gradient(180deg, rgba(8, 20, 33, 0.24), rgba(8, 20, 33, 0.94)),
+    radial-gradient(circle at 18% 16%, rgba(134, 168, 207, 0.34), transparent 22rem),
+    radial-gradient(circle at 54% 38%, rgba(225, 200, 215, 0.22), transparent 24rem),
+    radial-gradient(circle at 82% 78%, rgba(195, 142, 180, 0.34), transparent 30rem),
+    linear-gradient(145deg, #06111c 0%, #26425a 44%, #c38eb4 130%);
+  background-attachment: fixed;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.026) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent 78%);
+}
+
+.appShell {
+  width: min(100%, 1560px);
+  min-height: calc(100vh - 68px);
+  margin: 0 auto;
+  grid-template-columns: 250px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius-shell);
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)),
+    rgba(8, 20, 33, 0.66);
+  box-shadow: 0 34px 110px rgba(0, 0, 0, 0.44);
+  backdrop-filter: blur(28px);
+}
+
+.sidebar {
+  min-height: auto;
+  padding: 22px 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 42%),
+    rgba(6, 16, 27, 0.58);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.08);
+}
+
+.brand {
+  grid-template-columns: 42px 1fr;
+  min-height: 58px;
+  padding: 4px 8px 20px;
+}
+
+.brandMark {
+  width: 42px;
+  height: 42px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #e1c8d7, #86a8cf);
+  color: #071521;
+}
+
+.brand strong {
+  font-size: 18px;
+}
+
+.brand span,
+.topbar .eyebrow {
+  color: #e1c8d7;
+}
+
+nav {
+  gap: 8px;
+}
+
+.navItem {
+  min-height: 42px;
+  border-radius: 16px;
+  color: rgba(244, 247, 251, 0.68);
+}
+
+.navItem span {
+  color: rgba(225, 200, 215, 0.52);
+}
+
+.navItem:hover,
+.navItem.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.navItem.active {
+  box-shadow: inset 0 0 0 1px rgba(225, 200, 215, 0.16), 0 14px 34px rgba(0, 0, 0, 0.22);
+}
+
+.authPanel {
+  padding: 18px 8px 0;
+}
+
+.workspace {
+  padding: 22px;
+}
+
+.topbar {
+  min-height: 204px;
+  margin-bottom: 16px;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 8% 12%, rgba(225, 200, 215, 0.3), transparent 17rem),
+    radial-gradient(circle at 74% 50%, rgba(134, 168, 207, 0.26), transparent 18rem),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.06));
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(22px);
+}
+
+.topbar h1 {
+  max-width: 620px;
+  font-weight: 900;
+}
+
+.topbar p {
+  max-width: 590px;
+  color: rgba(244, 247, 251, 0.68);
+}
+
+.topActions {
+  max-width: 560px;
+}
+
+.whatsappIndicator,
+.topbar .secondaryLink,
+.topbar .smallButton {
+  background: rgba(255, 255, 255, 0.13);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+button,
+.primaryLink,
+.secondaryLink {
+  border-radius: 15px;
+  background: linear-gradient(135deg, #e1c8d7, #86a8cf);
+  color: #071521;
+  box-shadow: 0 16px 32px rgba(134, 168, 207, 0.2);
+}
+
+button:hover,
+.primaryLink:hover {
+  background: linear-gradient(135deg, #f0d8e4, #9abbe0);
+}
+
+.secondaryLink,
+.smallButton {
+  color: #f4f7fb;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+input,
+textarea,
+select,
+pre,
+.replyBox {
+  border-color: rgba(225, 200, 215, 0.16);
+  background: rgba(4, 13, 22, 0.42);
+}
+
+.metrics {
+  grid-template-columns: 1.2fr 0.9fr 0.9fr 0.9fr;
+  gap: 14px;
+}
+
+.metrics article,
+.statusStrip,
+.adsPanel,
+.panel,
+.batchPanel,
+.dispatchHistoryPanel {
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: var(--shadow-soft);
+}
+
+.metrics article {
+  min-height: 126px;
+  padding: 18px;
+}
+
+.metrics article::before {
+  inset: auto 18px 14px 18px;
+  width: auto;
+  height: 5px;
+  border-radius: 999px;
+}
+
+.metrics article:nth-child(1) {
+  background: linear-gradient(145deg, #e1c8d7, #c38eb4);
+  color: #171425;
+}
+
+.metrics article:nth-child(2) {
+  background: linear-gradient(145deg, #86a8cf, #e1c8d7);
+  color: #102034;
+}
+
+.metrics article:nth-child(3) {
+  background: linear-gradient(145deg, #26425a, #86a8cf);
+  color: #f6f9ff;
+}
+
+.metrics article:nth-child(4) {
+  background: linear-gradient(145deg, #102033, #26425a);
+  color: #f6f9ff;
+}
+
+.metrics article span,
+.metrics article small {
+  color: currentColor;
+  opacity: 0.72;
+}
+
+.metrics strong {
+  font-size: 38px;
+}
+
+.statusStrip {
+  background: rgba(5, 14, 24, 0.28);
+}
+
+.statusItem {
+  min-height: 76px;
+}
+
+.panelHeader {
+  padding: 20px 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent);
+}
+
+.sectionKicker {
+  color: #c38eb4;
+}
+
+.panelHeader h2 {
+  font-size: 20px;
+}
+
+.adsPanel {
+  border-color: rgba(225, 200, 215, 0.18);
+}
+
+.adsGrid,
+.adsBatchList,
+.monitorGrid {
+  gap: 16px;
+  padding: 20px;
+}
+
+.batchPanel {
+  margin: 0 20px 20px;
+}
+
+.adsBatchItem,
+.historyTotals article,
+.reviewStats article,
+.reviewTotals article,
+.sendProgressStats article {
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.historyTotals article:nth-child(1) {
+  background: linear-gradient(145deg, rgba(225, 200, 215, 0.9), rgba(195, 142, 180, 0.92));
+  color: #171425;
+}
+
+.historyTotals article:nth-child(2) {
+  background: linear-gradient(145deg, rgba(134, 168, 207, 0.92), rgba(225, 200, 215, 0.88));
+  color: #102034;
+}
+
+.historyTotals article:nth-child(3) {
+  background: linear-gradient(145deg, rgba(38, 66, 90, 0.96), rgba(134, 168, 207, 0.86));
+  color: #f6f9ff;
+}
+
+.historyTotals article span,
+.historyTotals article strong {
+  color: currentColor;
+}
+
+.message,
+.dispatchItem {
+  border-color: rgba(225, 200, 215, 0.12);
+}
+
+.badge {
+  background: rgba(134, 168, 207, 0.18);
+  color: #b9d7fa;
+}
+
+.badge.outbound {
+  background: rgba(195, 142, 180, 0.2);
+  color: #ffd7ea;
+}
+
+.commandHelp,
+.commandHelp code {
+  border-color: rgba(225, 200, 215, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.reviewOverlay,
+.sendProgressOverlay {
+  background: rgba(4, 11, 18, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.reviewDialog,
+.sendProgressDialog {
+  background: rgba(18, 31, 47, 0.9);
+}
+
+@media (max-width: 960px) {
+  body {
+    padding: 14px;
+  }
+
+  .appShell {
+    min-height: calc(100vh - 28px);
+    border-radius: 24px;
+  }
+
+  .sidebar {
+    position: static;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  body {
+    padding: 0;
+  }
+
+  .appShell {
+    min-height: 100vh;
+    border-width: 0;
+    border-radius: 0;
+  }
+
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    padding: 0;
+    background:
+      radial-gradient(circle at 30% 0%, rgba(134, 168, 207, 0.28), transparent 18rem),
+      radial-gradient(circle at 90% 28%, rgba(195, 142, 180, 0.22), transparent 18rem),
+      #081421;
+  }
+
+  body::before {
+    display: none;
+  }
+
+  .appShell {
+    width: 100%;
+    min-height: 100vh;
+    display: block;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .sidebar {
+    position: static;
+    min-height: 0;
+    padding: 14px;
+    display: grid;
+    grid-template-rows: auto auto auto;
+    gap: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(5, 14, 24, 0.72);
+    box-shadow: none;
+  }
+
+  .brand {
+    min-height: 48px;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .brandMark {
+    width: 38px;
+    height: 38px;
+    border-radius: 14px;
+  }
+
+  .brand strong {
+    font-size: 17px;
+  }
+
+  .brand span {
+    font-size: 10px;
+  }
+
+  nav {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 2px 0 6px;
+    scrollbar-width: none;
+  }
+
+  nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .navItem {
+    flex: 0 0 auto;
+    min-height: 38px;
+    padding: 0 11px;
+    border-radius: 999px;
+    gap: 7px;
+    font-size: 12px;
+  }
+
+  .navItem span {
+    width: auto;
+    font-size: 10px;
+  }
+
+  .authPanel {
+    padding: 0;
+    border-top: 0;
+  }
+
+  .tokenRow {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace {
+    width: 100%;
+    padding: 12px;
+  }
+
+  .topbar {
+    min-height: 0;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 18px;
+    border-radius: 24px;
+  }
+
+  .topbar h1 {
+    max-width: 100%;
+    font-size: 28px;
+    line-height: 1.06;
+  }
+
+  .topbar p {
+    max-width: 100%;
+    font-size: 14px;
+  }
+
+  .topActions,
+  .adsActions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .topActions > *,
+  .adsActions > *,
+  button,
+  .primaryLink,
+  .secondaryLink {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .whatsappIndicator {
+    grid-column: 1 / -1;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .metrics,
+  .statusStrip,
+  .adsGrid,
+  .adsBatchList,
+  .historyFilters,
+  .historyTotals,
+  .monitorGrid,
+  .workArea,
+  .previewToolbar,
+  .reviewStats,
+  .reviewTotals,
+  .sendProgressStats {
+    grid-template-columns: 1fr;
+  }
+
+  .metrics {
+    gap: 10px;
+  }
+
+  .metrics article {
+    min-height: 104px;
+    padding: 16px;
+  }
+
+  .metrics strong {
+    font-size: 32px;
+  }
+
+  .statusStrip,
+  .adsPanel,
+  .panel,
+  .batchPanel,
+  .dispatchHistoryPanel {
+    border-radius: 22px;
+  }
+
+  .statusItem {
+    min-height: 64px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .statusItem:last-child {
+    border-bottom: 0;
+  }
+
+  .panelHeader {
+    min-height: 0;
+    padding: 16px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .panelHeader h2 {
+    font-size: 18px;
+  }
+
+  .panelHeader p {
+    font-size: 12px;
+  }
+
+  .adsGrid,
+  .adsBatchList,
+  .monitorGrid {
+    padding: 14px;
+  }
+
+  .batchPanel {
+    margin: 0 12px 12px;
+  }
+
+  .historyFilters {
+    padding: 0 14px 14px;
+  }
+
+  .historyTotals {
+    padding: 0 14px 14px;
+  }
+
+  .groupSearchRow,
+  .savedFieldRow {
+    grid-template-columns: 1fr;
+  }
+
+  textarea,
+  .grow textarea {
+    min-height: 220px;
+  }
+
+  pre {
+    min-height: 180px;
+    max-width: 100%;
+    font-size: 12px;
+  }
+
+  .message {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 13px 14px;
+  }
+
+  .messageMeta,
+  .dispatchMeta,
+  .dispatchTitle {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .badge {
+    width: fit-content;
+    min-width: 72px;
+  }
+
+  .testPanel textarea,
+  .testPanel button,
+  .replyBox {
+    width: calc(100% - 28px);
+    margin-left: 14px;
+    margin-right: 14px;
+  }
+
+  .commandHelp {
+    margin: 0 14px 14px;
+    align-items: flex-start;
+  }
+
+  .reviewOverlay,
+  .sendProgressOverlay {
+    padding: 12px;
+    align-items: start;
+    overflow: auto;
+  }
+
+  .reviewDialog,
+  .sendProgressDialog {
+    width: 100%;
+    padding: 16px;
+    border-radius: 22px;
+  }
+}
+
+@media (max-width: 380px) {
+  .topActions,
+  .adsActions {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar h1 {
+    font-size: 25px;
+  }
+
+  button,
+  .primaryLink,
+  .secondaryLink {
+    min-height: 40px;
+    padding: 0 12px;
+    font-size: 13px;
+  }
+}
