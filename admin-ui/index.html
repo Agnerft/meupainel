@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mega App | Disparo ADS</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260720-2138" />
-    <link rel="stylesheet" href="/styles.css?v=20260720-2132" />
+    <link rel="stylesheet" href="/styles.css?v=20260804-whatsapp-status" />
   </head>
   <body>
     <main class="appShell">
@@ -43,6 +43,13 @@
             <p>Campanhas, grupos, fila de envio e respostas da IA em um painel unico.</p>
           </div>
           <div class="topActions">
+            <div class="whatsappIndicator" id="whatsappIndicator" aria-live="polite">
+              <span class="whatsappDot"></span>
+              <div>
+                <strong>WhatsApp</strong>
+                <small>Verificando conexao...</small>
+              </div>
+            </div>
             <label class="primaryLink" for="adsFile">Importar ADS</label>
             <input id="adsFile" type="file" accept=".txt,.csv,.json,.xlsx,.xls,text/plain,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
             <a class="secondaryLink" href="/connect-whatsapp">WhatsApp</a>
@@ -276,6 +283,6 @@
       </section>
     </div>
 
-    <script src="/app.js?v=20260720-2132"></script>
+    <script src="/app.js?v=20260804-whatsapp-status"></script>
   </body>
 </html>

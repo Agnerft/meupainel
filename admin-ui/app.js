@@ -8,6 +8,7 @@ const replyBox = document.querySelector("#replyBox");
 const messageList = document.querySelector("#messageList");
 const statusStrip = document.querySelector("#statusStrip");
 const lastUpdate = document.querySelector("#lastUpdate");
+const whatsappIndicator = document.querySelector("#whatsappIndicator");
 const adsText = document.querySelector("#adsText");
 const adsPreviewButton = document.querySelector("#adsPreviewButton");
 const adsSendButton = document.querySelector("#adsSendButton");
@@ -176,14 +177,36 @@ async function loadSummary() {
     const data = await api("summary");
     renderMetrics(data.totals || {});
     renderServices(data.services || {});
+    renderWhatsAppStatus(data.whatsapp || {});
     renderMessages(data.recentMessages || []);
     loadMonitorSettings();
     loadAdsHistory();
     lastUpdate.textContent = new Date().toLocaleString("pt-BR");
   } catch (error) {
     lastUpdate.textContent = "Falha ao carregar";
+    renderWhatsAppStatus({ connected: false, state: "erro" });
     statusStrip.innerHTML = `<div class="statusItem"><span>Painel</span><strong class="fail">${escapeHtml(error.message)}</strong></div>`;
   }
+}
+
+function renderWhatsAppStatus(whatsapp) {
+  const connected = Boolean(whatsapp.connected);
+  const number = whatsapp.number || "";
+  const profile = whatsapp.profileName || "";
+  const state = whatsapp.state || "unknown";
+  const detail = connected
+    ? [number, profile].filter(Boolean).join(" | ") || "Numero nao identificado"
+    : state === "connecting"
+      ? "Aguardando QR Code"
+      : `Status: ${state}`;
+
+  whatsappIndicator.classList.toggle("connected", connected);
+  whatsappIndicator.classList.toggle("disconnected", !connected);
+  whatsappIndicator.querySelector("strong").textContent = connected ? "WhatsApp conectado" : "WhatsApp desconectado";
+  whatsappIndicator.querySelector("small").textContent = detail;
+  whatsappIndicator.title = connected
+    ? `Instancia ${whatsapp.instanceName || "principal"} conectada`
+    : "Clique em WhatsApp para conectar pelo QR Code";
 }
 
 async function loadMonitorSettings() {

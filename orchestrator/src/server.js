@@ -94,7 +94,7 @@ app.post("/admin/login", async (req, res) => {
 });
 
 app.get("/admin/summary", requireAdmin, async (_req, res) => {
-  const [totals, recent, services] = await Promise.all([
+  const [totals, recent, services, whatsapp] = await Promise.all([
     db.query(`
       SELECT
         count(*)::int AS total,
@@ -110,12 +110,14 @@ app.get("/admin/summary", requireAdmin, async (_req, res) => {
       LIMIT 30
     `),
     checkServices(),
+    getWhatsAppConnectionInfo(),
   ]);
 
   res.json({
     totals: totals.rows[0],
     recentMessages: recent.rows,
     services,
+    whatsapp,
   });
 });
 
@@ -518,6 +520,90 @@ async function fetchEvolutionState(instanceName) {
 
   if (!response.ok) return null;
   return response.json();
+}
+
+async function getWhatsAppConnectionInfo() {
+  try {
+    const state = await fetchEvolutionState(config.evolutionInstanceName);
+    const details = await fetchEvolutionInstanceDetails(config.evolutionInstanceName);
+    const lookup = { state, details };
+    const instance = state?.instance || {};
+    const status = instance.state || state?.state || "unknown";
+    const connected = status === "open";
+    const ownerJid = findFirstString(lookup, [
+      "ownerJid",
+      "owner",
+      "ownerNumber",
+      "wuid",
+      "jid",
+      "remoteJid",
+      "phone",
+      "number",
+    ]);
+
+    return {
+      connected,
+      state: status,
+      instanceName: instance.instanceName || state?.instanceName || config.evolutionInstanceName,
+      number: formatWhatsAppNumber(ownerJid),
+      profileName: findFirstString(lookup, ["profileName", "pushName"]) || "",
+    };
+  } catch {
+    return {
+      connected: false,
+      state: "unavailable",
+      instanceName: config.evolutionInstanceName,
+      number: "",
+      profileName: "",
+    };
+  }
+}
+
+async function fetchEvolutionInstanceDetails(instanceName) {
+  const response = await fetch(`${config.evolutionBaseUrl}/instance/fetchInstances?instanceName=${encodeURIComponent(instanceName)}`, {
+    headers: { apikey: config.evolutionApiKey },
+  }).catch(() => null);
+
+  if (!response?.ok) return null;
+  return response.json().catch(() => null);
+}
+
+function findFirstString(value, keys) {
+  if (!value || typeof value !== "object") return "";
+  const queue = [value];
+  const seen = new Set();
+
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object" || seen.has(current)) continue;
+    seen.add(current);
+
+    for (const key of keys) {
+      if (typeof current[key] === "string" && current[key].trim()) return current[key].trim();
+      if (typeof current[key] === "number" && Number.isFinite(current[key])) return String(current[key]);
+    }
+
+    for (const child of Object.values(current)) {
+      if (child && typeof child === "object") queue.push(child);
+    }
+  }
+
+  return "";
+}
+
+function formatWhatsAppNumber(value) {
+  const base = String(value || "").split("@", 1)[0].split(":", 1)[0];
+  const digits = base.replace(/\D/g, "");
+  if (!digits) return "";
+  const withoutDeviceSuffix = digits.length > 14 ? digits.slice(0, 13) : digits;
+  if (withoutDeviceSuffix.startsWith("55") && withoutDeviceSuffix.length >= 12) {
+    const area = withoutDeviceSuffix.slice(2, 4);
+    const local = withoutDeviceSuffix.slice(4);
+    const first = local.length > 8 ? local.slice(0, 5) : local.slice(0, 4);
+    const second = local.slice(first.length);
+    return `+55 (${area}) ${first}-${second}`;
+  }
+  return `+${withoutDeviceSuffix}`;
 }
 
 async function checkServices() {

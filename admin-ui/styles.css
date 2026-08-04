@@ -1,15 +1,16 @@
 :root {
   color-scheme: light;
-  --page: #eef3f5;
-  --sidebar: #101415;
-  --sidebar-2: #1a2020;
+  --page: #f3f7f8;
+  --sidebar: #0b1113;
+  --sidebar-2: #162326;
   --card: #ffffff;
-  --field: #ffffff;
+  --card-raised: rgba(255, 255, 255, 0.78);
+  --field: #fbfdfe;
   --ink: #111716;
-  --muted: #647083;
-  --soft: #eef2f6;
-  --line: #dce3ea;
-  --line-strong: #c8d1dc;
+  --muted: #667586;
+  --soft: #edf4f6;
+  --line: rgba(132, 151, 166, 0.26);
+  --line-strong: rgba(101, 119, 135, 0.32);
   --accent: #00a889;
   --accent-dark: #087563;
   --blue: #2563eb;
@@ -18,8 +19,11 @@
   --amber: #b7791f;
   --red: #b42318;
   --green: #067647;
-  --shadow: 0 18px 44px rgba(21, 31, 43, 0.12);
-  --shadow-soft: 0 10px 24px rgba(21, 31, 43, 0.07);
+  --shadow: 0 22px 60px rgba(21, 31, 43, 0.12);
+  --shadow-soft: 0 14px 34px rgba(21, 31, 43, 0.08);
+  --radius: 8px;
+  --radius-shell: 18px;
+  --focus-ring: 0 0 0 4px rgba(0, 168, 137, 0.15);
 }
 
 :root[data-theme="dark"] {
@@ -28,6 +32,7 @@
   --sidebar: #060a10;
   --sidebar-2: #0e1620;
   --card: #121b26;
+  --card-raised: rgba(18, 27, 38, 0.82);
   --field: #0c141e;
   --ink: #eef4fa;
   --muted: #9aa8b8;
@@ -56,11 +61,12 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    linear-gradient(135deg, rgba(0, 168, 137, 0.08), transparent 26%),
-    linear-gradient(315deg, rgba(249, 115, 82, 0.08), transparent 28%),
+    radial-gradient(circle at top left, rgba(0, 168, 137, 0.12), transparent 32rem),
+    radial-gradient(circle at bottom right, rgba(249, 115, 82, 0.1), transparent 34rem),
     var(--page);
   color: var(--ink);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-rendering: geometricPrecision;
 }
 
 button,
@@ -85,43 +91,46 @@ p {
 .appShell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 272px minmax(0, 1fr);
+  grid-template-columns: 286px minmax(0, 1fr);
 }
 
 .sidebar {
   position: sticky;
   top: 0;
   min-height: 100vh;
-  padding: 18px 14px;
+  padding: 20px 14px;
   background:
-    linear-gradient(180deg, rgba(0, 168, 137, 0.24), transparent 28%),
+    radial-gradient(circle at 18% 0%, rgba(163, 230, 53, 0.16), transparent 16rem),
+    linear-gradient(180deg, rgba(0, 168, 137, 0.22), transparent 32%),
     linear-gradient(180deg, var(--sidebar-2), var(--sidebar));
   color: #e8eef5;
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 22px;
+  box-shadow: 16px 0 44px rgba(7, 12, 16, 0.16);
 }
 
 .brand {
   display: grid;
-  grid-template-columns: 44px 1fr;
+  grid-template-columns: 46px 1fr;
   align-items: center;
   gap: 12px;
-  min-height: 58px;
-  padding: 4px 6px 16px;
+  min-height: 64px;
+  padding: 6px 8px 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .brandMark {
-  width: 42px;
-  height: 42px;
-  border-radius: 8px;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
   display: grid;
   place-items: center;
-  background: var(--lime);
+  background: linear-gradient(135deg, var(--lime), #5eead4);
   color: #111716;
   font-size: 20px;
   font-weight: 950;
+  box-shadow: 0 12px 28px rgba(94, 234, 212, 0.22);
 }
 
 .brand strong {
@@ -148,15 +157,17 @@ nav {
 }
 
 .navItem {
-  min-height: 44px;
-  padding: 0 12px;
-  border-radius: 8px;
+  min-height: 46px;
+  padding: 0 13px;
+  border-radius: 14px;
   color: #b9c6d5;
   display: flex;
   align-items: center;
   gap: 10px;
   text-decoration: none;
   font-weight: 800;
+  border: 1px solid transparent;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 
 .navItem span {
@@ -168,18 +179,23 @@ nav {
 
 .navItem:hover,
 .navItem.active {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.11);
   color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .navItem.active {
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.18), inset 3px 0 0 var(--accent);
+}
+
+.navItem:hover {
+  transform: translateX(2px);
 }
 
 .authPanel {
   display: grid;
   gap: 9px;
-  padding: 16px 6px 0;
+  padding: 16px 8px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
@@ -233,7 +249,7 @@ label {
   margin: 0 18px 18px;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -260,11 +276,11 @@ select {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--field);
   color: var(--ink);
   outline: 0;
-  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease, transform 160ms ease;
 }
 
 input,
@@ -283,7 +299,13 @@ input:focus,
 textarea:focus,
 select:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 4px rgba(13, 148, 136, 0.14);
+  box-shadow: var(--focus-ring);
+}
+
+input:hover,
+textarea:hover,
+select:hover {
+  border-color: var(--line-strong);
 }
 
 .authPanel input {
@@ -294,7 +316,7 @@ select:focus {
 
 .workspace {
   min-width: 0;
-  padding: 24px;
+  padding: 26px;
 }
 
 .topbar {
@@ -303,15 +325,17 @@ select:focus {
   gap: 20px;
   align-items: center;
   margin-bottom: 16px;
-  min-height: 176px;
-  padding: 26px;
-  border-radius: 8px;
+  min-height: 188px;
+  padding: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-shell);
   color: #ffffff;
   background:
-    linear-gradient(135deg, rgba(163, 230, 53, 0.18), transparent 34%),
-    linear-gradient(315deg, rgba(0, 168, 137, 0.32), transparent 42%),
+    radial-gradient(circle at 10% 0%, rgba(163, 230, 53, 0.22), transparent 22rem),
+    radial-gradient(circle at 100% 100%, rgba(0, 168, 137, 0.34), transparent 24rem),
     #111716;
-  box-shadow: 0 24px 58px rgba(17, 23, 22, 0.24);
+  box-shadow: 0 28px 70px rgba(17, 23, 22, 0.22);
+  overflow: hidden;
 }
 
 .eyebrow,
@@ -331,8 +355,9 @@ select:focus {
 
 .topbar h1 {
   margin-top: 6px;
-  font-size: 38px;
+  font-size: clamp(30px, 4vw, 44px);
   line-height: 1.08;
+  max-width: 760px;
 }
 
 .panelHeader p,
@@ -360,26 +385,76 @@ select:focus {
   flex-wrap: wrap;
 }
 
+.whatsappIndicator {
+  min-height: 50px;
+  min-width: min(100%, 238px);
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 15px;
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  gap: 10px;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.whatsappDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #f97352;
+  box-shadow: 0 0 0 5px rgba(249, 115, 82, 0.14);
+}
+
+.whatsappIndicator.connected .whatsappDot {
+  background: #5eead4;
+  box-shadow: 0 0 0 5px rgba(94, 234, 212, 0.16), 0 0 18px rgba(94, 234, 212, 0.42);
+}
+
+.whatsappIndicator strong,
+.whatsappIndicator small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whatsappIndicator strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.whatsappIndicator small {
+  margin-top: 3px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 11px;
+  font-weight: 750;
+}
+
 button,
 .primaryLink,
 .secondaryLink {
   min-height: 42px;
-  border-radius: 8px;
+  border-radius: 13px;
   border: 1px solid transparent;
-  padding: 0 14px;
+  padding: 0 15px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: #ffffff;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
   font-weight: 850;
   text-decoration: none;
-  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+  box-shadow: 0 10px 22px rgba(0, 168, 137, 0.18);
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
 
 button:hover,
 .primaryLink:hover {
-  background: var(--accent-dark);
+  background: linear-gradient(135deg, #10bfa0, var(--accent-dark));
+  box-shadow: 0 12px 26px rgba(0, 168, 137, 0.24);
 }
 
 button:active,
@@ -390,13 +465,27 @@ button:active,
 
 .secondaryLink,
 .smallButton {
+  background: var(--soft);
+  color: var(--ink);
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.secondaryLink:hover,
+.smallButton:hover {
+  background: var(--field);
+  border-color: var(--line-strong);
+}
+
+.topbar .secondaryLink,
+.topbar .smallButton {
   background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.18);
 }
 
-.secondaryLink:hover,
-.smallButton:hover {
+.topbar .secondaryLink:hover,
+.topbar .smallButton:hover {
   background: rgba(255, 255, 255, 0.16);
 }
 
@@ -418,29 +507,39 @@ button:disabled {
 .panel,
 .batchPanel {
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--card);
+  border-radius: var(--radius);
+  background: var(--card-raised);
   box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(18px);
 }
 
 .metrics article {
   min-height: 108px;
-  padding: 16px;
+  padding: 16px 16px 15px;
   display: grid;
   align-content: space-between;
-  border-top: 4px solid var(--accent);
+  position: relative;
+  overflow: hidden;
+}
+
+.metrics article::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--accent);
 }
 
 .metrics article:nth-child(2) {
-  border-top-color: var(--blue);
+  --accent: var(--blue);
 }
 
 .metrics article:nth-child(3) {
-  border-top-color: var(--coral);
+  --accent: var(--coral);
 }
 
 .metrics article:nth-child(4) {
-  border-top-color: var(--lime);
+  --accent: var(--lime);
 }
 
 .metrics span {
@@ -472,7 +571,7 @@ button:disabled {
   min-height: 70px;
   padding: 14px 16px;
   border-right: 1px solid var(--line);
-  background: var(--card);
+  background: transparent;
 }
 
 .statusItem:last-child {
@@ -524,7 +623,7 @@ button:disabled {
 
 .panelHeader {
   min-height: 68px;
-  padding: 16px 18px;
+  padding: 18px 20px;
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
@@ -556,8 +655,8 @@ button:disabled {
 .adsGrid {
   display: grid;
   grid-template-columns: minmax(300px, 0.92fr) minmax(360px, 1fr);
-  gap: 16px;
-  padding: 16px;
+  gap: 18px;
+  padding: 18px;
 }
 
 .inputPanel,
@@ -598,7 +697,7 @@ pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--soft);
   padding: 13px;
   color: var(--ink);
@@ -608,6 +707,7 @@ pre {
 .batchPanel {
   margin: 0 16px 16px;
   box-shadow: none;
+  background: var(--card);
 }
 
 .adsBatchList {
@@ -623,9 +723,16 @@ pre {
   display: grid;
   gap: 9px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 12px;
-  background: var(--card);
+  background: var(--field);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.adsBatchItem:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-soft);
+  transform: translateY(-1px);
 }
 
 .adsBatchItem label {
@@ -640,9 +747,10 @@ pre {
 .dispatchHistoryPanel {
   margin-top: 14px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--card);
   box-shadow: var(--shadow-soft);
+  overflow: hidden;
 }
 
 .historyFilters {
@@ -664,7 +772,7 @@ pre {
 .historyFilters input {
   min-height: 42px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 0 12px;
   background: var(--card);
   color: var(--ink);
@@ -681,7 +789,7 @@ pre {
   min-height: 86px;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--soft);
 }
 
@@ -709,6 +817,11 @@ pre {
   gap: 10px;
   padding: 14px 16px;
   border-bottom: 1px solid var(--line);
+  transition: background 160ms ease;
+}
+
+.dispatchItem:hover {
+  background: rgba(0, 168, 137, 0.045);
 }
 
 .dispatchItem:last-child {
@@ -743,7 +856,7 @@ pre {
   overflow: auto;
   white-space: pre-wrap;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 12px;
   background: var(--soft);
   color: var(--ink);
@@ -771,6 +884,11 @@ pre {
   gap: 14px;
   padding: 14px 16px;
   border-bottom: 1px solid var(--line);
+  transition: background 160ms ease;
+}
+
+.message:hover {
+  background: rgba(37, 99, 235, 0.04);
 }
 
 .message:last-child {
@@ -836,7 +954,7 @@ pre {
   min-height: 132px;
   margin-top: 14px;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border: 1px solid var(--line);
   background: var(--soft);
   color: var(--muted);
@@ -864,10 +982,11 @@ pre {
 .sendProgressDialog {
   width: min(94vw, 560px);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-shell);
   padding: 22px;
-  background: var(--card);
+  background: var(--card-raised);
   box-shadow: 0 30px 80px rgba(8, 12, 12, 0.34);
+  backdrop-filter: blur(18px);
 }
 
 .reviewDialog {
@@ -909,7 +1028,7 @@ pre {
   min-height: 86px;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--soft);
 }
 
@@ -938,7 +1057,7 @@ pre {
   margin: 0;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--soft);
   color: var(--muted);
   line-height: 1.4;
@@ -983,7 +1102,7 @@ pre {
   min-height: 86px;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--soft);
 }
 
