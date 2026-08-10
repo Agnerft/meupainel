@@ -557,7 +557,15 @@ function renderAdsPreview(data) {
     : data.message || "Sem mensagem.";
 
   if (entries.length > 1) {
-    adsBatchList.innerHTML = entries.map((entry, index) => renderAdsBatchItem(entry, groups, index)).join("");
+    adsBatchList.innerHTML = `
+      <div class="adsBatchTableHeader" aria-hidden="true">
+        <span>Campanha</span>
+        <span>Resumo</span>
+        <span>Grupo</span>
+        <span>Mensagem</span>
+      </div>
+      ${entries.map((entry, index) => renderAdsBatchItem(entry, groups, index)).join("")}
+    `;
     adsSendButton.disabled = !entries.some((entry) => entry.match?.remoteJid);
   } else {
     adsBatchList.innerHTML = `
@@ -580,12 +588,45 @@ function renderAdsBatchItem(entry, groups, index) {
     options.push(`<option value="${escapeHtml(group.remoteJid)}">${escapeHtml(group.name)}</option>`);
   }
 
+  const parsed = entry.parsed || {};
+  const campaignCount = Array.isArray(entry.items) && entry.items.length ? entry.items.length : 1;
+  const theBestItems = Array.isArray(entry.items) && entry.items.length
+    ? entry.items.filter((item) => item.theBest?.login)
+    : entry.theBest?.login ? [entry] : [];
+  const stats = theBestItems.reduce((total, item) => {
+    total.conversations += Number(item.theBest?.conversationsStarted ?? item.conversationsStarted ?? 0);
+    total.sales += Number(item.theBest?.sales || 0);
+    total.tests += Number(item.theBest?.tests || 0);
+    return total;
+  }, { conversations: 0, sales: 0, tests: 0 });
+
   return `
     <article class="adsBatchItem" data-index="${index}">
-      <label>${escapeHtml(entry.parsed?.label || `ADS ${index + 1}`)}</label>
-      <select class="adsBatchGroup">${options.join("")}</select>
-      <pre>${escapeHtml(entry.message || "")}</pre>
+      <div class="adsBatchCampaign">
+        <label>${escapeHtml(parsed.label || `ADS ${index + 1}`)}</label>
+        <span>${campaignCount > 1 ? `${campaignCount} campanhas JR` : escapeHtml(parsed.customerName || "Cliente nao informado")}</span>
+      </div>
+      <div class="adsBatchSummary">
+        ${renderBatchMetric("Valor", formatCurrency(parsed.rawValue))}
+        ${renderBatchMetric("Com imposto", formatCurrency(parsed.taxedValue))}
+        ${renderBatchMetric("Conversas", stats.conversations || parsed.conversationsStarted || 0)}
+        ${renderBatchMetric("Vendas/Testes", `${stats.sales || 0}/${stats.tests || 0}`)}
+      </div>
+      <select class="adsBatchGroup" aria-label="Grupo de envio">${options.join("")}</select>
+      <details class="adsBatchMessage">
+        <summary>Ver mensagem</summary>
+        <pre>${escapeHtml(entry.message || "")}</pre>
+      </details>
     </article>
+  `;
+}
+
+function renderBatchMetric(label, value) {
+  return `
+    <span>
+      <small>${escapeHtml(label)}</small>
+      <strong>${escapeHtml(value)}</strong>
+    </span>
   `;
 }
 
@@ -818,8 +859,9 @@ function showSendProgress(data) {
 }
 
 function collectAdsEntries() {
-  return [...adsBatchList.querySelectorAll(".adsBatchItem")].map((item) => {
+  return [...adsBatchList.querySelectorAll(".adsBatchItem")].flatMap((item) => {
     const select = item.querySelector(".adsBatchGroup");
+    if (!select) return [];
     const selected = select.options[select.selectedIndex];
     if (!selected.value) return { skip: true };
     return {
