@@ -15,6 +15,7 @@ const redis = new Redis(process.env.REDIS_URL);
 
 const config = {
   model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+  audioTranscriptionModel: process.env.OPENAI_AUDIO_TRANSCRIPTION_MODEL || "gpt-4o-mini-transcribe",
   evolutionBaseUrl: process.env.EVOLUTION_BASE_URL || "http://evolution-api:8080",
   evolutionApiKey: process.env.EVOLUTION_API_KEY,
   evolutionInstanceName: process.env.EVOLUTION_INSTANCE_NAME || "principal",
@@ -33,6 +34,8 @@ const THE_BEST_API_URL = "https://api.painel.best/user/logs/";
 const THE_BEST_BASE_URL = "https://api.painel.best";
 const THE_BEST_ACTIONS = ["new", "extend", "trial-conversion"];
 const adsSendJobs = new Map();
+const REMINDER_STATE_TTL_SECONDS = 6 * 60 * 60;
+const REMINDER_CHECK_INTERVAL_MS = 15 * 1000;
 const EXTERNAL_ADS_CAMPAIGNS = [
   { key: "angelo", label: "ADS15 - ANGELO (2061)", aliases: ["ANGELO", "ADS15", "2061"] },
   { key: "rafa", label: "ADS17 - RAFA NATV (1757)", aliases: ["RAFA", "NATV", "ADS17", "1757"] },
@@ -687,6 +690,26 @@ async function ensureSchema() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS whatsapp_reminders (
+      id BIGSERIAL PRIMARY KEY,
+      instance_name TEXT,
+      group_name TEXT,
+      group_jid TEXT NOT NULL,
+      sender_name TEXT,
+      sender_jid TEXT,
+      body TEXT NOT NULL,
+      remind_at TIMESTAMPTZ NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      sent_at TIMESTAMPTZ,
+      last_error TEXT
+    )
+  `);
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS idx_whatsapp_reminders_due
+      ON whatsapp_reminders(status, remind_at)
+  `);
 }
 
 app.post("/webhooks/evolution", async (req, res) => {
@@ -698,7 +721,10 @@ app.post("/webhooks/evolution", async (req, res) => {
   res.status(202).json({ ok: true });
 
   try {
-    const event = normalizeEvolutionMessage(req.body);
+    let event = normalizeEvolutionMessage(req.body);
+    if (!event?.text && event?.audio && !event.fromMe) {
+      event = await attachAudioTranscription(event);
+    }
     if (!event?.text) return;
 
     if (event.fromMe) {
@@ -910,6 +936,7 @@ function normalizeEvolutionMessage(payload) {
   const data = payload?.data || payload;
   const message = data?.message || {};
   const key = data?.key || message?.key || {};
+  const audio = extractAudioMessage(data, message);
   const text =
     message?.conversation ||
     message?.extendedTextMessage?.text ||
@@ -921,8 +948,138 @@ function normalizeEvolutionMessage(payload) {
     remoteJid: key?.remoteJid || data?.remoteJid || data?.from,
     fromMe: Boolean(key?.fromMe || data?.fromMe),
     senderName: data?.pushName || data?.senderName || data?.name,
+    senderJid: key?.participant || data?.participant || data?.sender || data?.senderJid || "",
+    messageId: key?.id || data?.id || data?.messageId,
+    messageKey: {
+      id: key?.id || data?.id || data?.messageId,
+      remoteJid: key?.remoteJid || data?.remoteJid || data?.from,
+      fromMe: Boolean(key?.fromMe || data?.fromMe),
+    },
     text,
+    audio,
   };
+}
+
+function extractAudioMessage(data, message) {
+  const audioMessage =
+    message?.audioMessage ||
+    message?.ephemeralMessage?.message?.audioMessage ||
+    message?.viewOnceMessage?.message?.audioMessage ||
+    data?.audioMessage;
+  if (!audioMessage && data?.messageType !== "audioMessage" && data?.mediaType !== "audio") return null;
+
+  return {
+    ...audioMessage,
+    mimetype: audioMessage?.mimetype || data?.mimetype || data?.media?.mimetype || "audio/ogg",
+    fileName: data?.fileName || data?.media?.fileName || "",
+    base64:
+      audioMessage?.base64 ||
+      audioMessage?.media ||
+      data?.base64 ||
+      data?.media?.base64 ||
+      data?.message?.base64 ||
+      "",
+  };
+}
+
+async function attachAudioTranscription(event) {
+  try {
+    const media = await resolveAudioMedia(event);
+    if (!media?.buffer?.length) return event;
+
+    const transcription = await transcribeAudio(media);
+    if (!transcription) return event;
+
+    return {
+      ...event,
+      text: `[audio transcrito] ${transcription}`,
+    };
+  } catch (error) {
+    console.error("audio transcription failed", error);
+    return event;
+  }
+}
+
+async function resolveAudioMedia(event) {
+  const inlineBase64 = normalizeBase64(event.audio?.base64);
+  if (inlineBase64) {
+    return {
+      buffer: Buffer.from(inlineBase64, "base64"),
+      mimetype: event.audio?.mimetype || "audio/ogg",
+      fileName: event.audio?.fileName || buildAudioFileName(event.messageId, event.audio?.mimetype),
+    };
+  }
+
+  const fetched = await fetchEvolutionMediaBase64(event.instanceName, event.messageKey);
+  const fetchedBase64 = normalizeBase64(fetched?.base64);
+  if (!fetchedBase64) return null;
+
+  return {
+    buffer: Buffer.from(fetchedBase64, "base64"),
+    mimetype: fetched?.mimetype || event.audio?.mimetype || "audio/ogg",
+    fileName: fetched?.fileName || event.audio?.fileName || buildAudioFileName(event.messageId, fetched?.mimetype),
+  };
+}
+
+async function fetchEvolutionMediaBase64(instanceName, messageKey) {
+  const key = {
+    id: messageKey?.id,
+    remoteJid: messageKey?.remoteJid,
+    fromMe: Boolean(messageKey?.fromMe),
+  };
+  if (!instanceName || !key.id) return null;
+
+  const response = await fetch(`${config.evolutionBaseUrl}/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      apikey: config.evolutionApiKey,
+    },
+    body: JSON.stringify({
+      message: { key },
+      convertToMp4: false,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Evolution getBase64FromMediaMessage failed: ${response.status} ${body}`);
+  }
+
+  return response.json();
+}
+
+async function transcribeAudio(media) {
+  const file = new File([media.buffer], media.fileName || buildAudioFileName(null, media.mimetype), {
+    type: media.mimetype || "audio/ogg",
+  });
+  const response = await openai.audio.transcriptions.create({
+    model: config.audioTranscriptionModel,
+    file,
+    language: "pt",
+  });
+
+  return String(response?.text || "").trim();
+}
+
+function normalizeBase64(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = text.match(/^data:[^;]+;base64,(.+)$/);
+  return match ? match[1] : text;
+}
+
+function buildAudioFileName(messageId, mimetype = "audio/ogg") {
+  const extension = audioExtensionFromMime(mimetype);
+  return `${messageId || crypto.randomUUID()}.${extension}`;
+}
+
+function audioExtensionFromMime(mimetype = "") {
+  if (mimetype.includes("mpeg") || mimetype.includes("mp3")) return "mp3";
+  if (mimetype.includes("mp4")) return "mp4";
+  if (mimetype.includes("wav")) return "wav";
+  if (mimetype.includes("webm")) return "webm";
+  return "ogg";
 }
 
 async function saveMessage(event, rawPayload) {
@@ -949,6 +1106,8 @@ async function handleMonitorGroupCommand(event) {
 
   const settings = await getAppSetting("monitor_group", {});
   if (!settings?.enabled || settings.groupJid !== event.remoteJid) return false;
+
+  if (await handleReminderConversation(event, settings)) return true;
 
   const command = normalizeMonitorCommand(event.text);
   if (!command) return true;
@@ -977,6 +1136,11 @@ async function handleMonitorGroupCommand(event) {
     const message = await buildTdsRankMessage(command.date);
     await sendWhatsAppText(event.instanceName, event.remoteJid, message);
     await saveOutboundMessage(event, message);
+  } else if (command.type === "reminder-start") {
+    const message = "Qual lembrete voce quer salvar?";
+    await saveReminderState(event, { step: "awaiting_body" });
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
   }
 
   return true;
@@ -993,6 +1157,10 @@ function normalizeMonitorCommand(text) {
   }
 
   if (["MENU", "COMANDOS", "AJUDA", "HELP", "OPCOES", "OPCOES DO BOT"].includes(normalized)) return "menu";
+
+  if (["GRAVAR", "LEMBRETE", "CRIAR LEMBRETE", "SALVAR LEMBRETE", "NOVO LEMBRETE"].includes(normalized)) {
+    return { type: "reminder-start" };
+  }
 
   if ([
     "STATUS",
@@ -1065,6 +1233,9 @@ function buildMonitorMenuMessage() {
     "",
     "rank revendas ontem",
     "Mostra o ranking do dia anterior.",
+    "",
+    "gravar",
+    "Cria um lembrete no grupo. O bot pergunta o texto e depois o tempo.",
   ].join("\n");
 }
 
@@ -1075,7 +1246,199 @@ function isGeneratedMonitorMessage(text) {
     /^Menu de comandos\b/i.test(value) ||
     /^Status ADS\s+-/i.test(value) ||
     /^Creditos TDS\b/i.test(value) ||
-    /^Credito TDS concluido\b/i.test(value);
+    /^Credito TDS concluido\b/i.test(value) ||
+    /^Qual lembrete voce quer salvar\?/i.test(value) ||
+    /^Daqui quanto tempo/i.test(value) ||
+    /^Lembrete salvo\b/i.test(value) ||
+    /^Lembrete:/i.test(value);
+}
+
+async function handleReminderConversation(event, settings) {
+  const state = await getReminderState(event);
+  if (!state) return false;
+
+  const text = String(event.text || "").trim();
+  if (["CANCELAR", "CANCELA", "PARAR"].includes(normalizeText(text))) {
+    await clearReminderState(event);
+    const message = "Lembrete cancelado.";
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+    return true;
+  }
+
+  if (state.step === "awaiting_body") {
+    if (!text) return true;
+    await saveReminderState(event, { step: "awaiting_time", body: text });
+    const message = "Daqui quanto tempo eu te aviso? Exemplo: 30 minutos, 2 horas, 1h30 ou 3 dias.";
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+    return true;
+  }
+
+  if (state.step === "awaiting_time") {
+    const dueAt = parseReminderDueAt(text);
+    if (!dueAt) {
+      const message = "Nao entendi o tempo. Me manda algo tipo: 30 minutos, 2 horas, 1h30 ou 3 dias.";
+      await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+      await saveOutboundMessage(event, message);
+      return true;
+    }
+
+    await createReminder({
+      event,
+      settings,
+      body: state.body,
+      remindAt: dueAt,
+    });
+    await clearReminderState(event);
+
+    const message = `Lembrete salvo: ${state.body}\nVou avisar em ${formatReminderDate(dueAt)}.`;
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+    return true;
+  }
+
+  await clearReminderState(event);
+  return false;
+}
+
+function reminderStateKey(event) {
+  const actor = event.senderJid || event.senderName || "sem-remetente";
+  return `reminder-state:${event.remoteJid}:${actor}`;
+}
+
+async function getReminderState(event) {
+  const value = await redis.get(reminderStateKey(event));
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    await clearReminderState(event);
+    return null;
+  }
+}
+
+async function saveReminderState(event, state) {
+  await redis.set(reminderStateKey(event), JSON.stringify(state), "EX", REMINDER_STATE_TTL_SECONDS);
+}
+
+async function clearReminderState(event) {
+  await redis.del(reminderStateKey(event));
+}
+
+function parseReminderDueAt(text) {
+  const value = String(text || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+  const now = Date.now();
+  let milliseconds = 0;
+  let scanValue = value;
+
+  if (/\bmeia\s+hora\b/.test(value)) milliseconds += 30 * 60 * 1000;
+
+  const compactHourMatch = value.match(/\b(\d+)\s*h(?:\s*(\d+))?\b/);
+  if (compactHourMatch) {
+    milliseconds += Number(compactHourMatch[1]) * 60 * 60 * 1000;
+    if (compactHourMatch[2]) milliseconds += Number(compactHourMatch[2]) * 60 * 1000;
+    scanValue = value.replace(compactHourMatch[0], " ");
+  }
+
+  const matches = [...scanValue.matchAll(/(\d+(?:[.,]\d+)?)\s*(segundos?|segs?|s|minutos?|mins?|min|horas?|hrs?|h|dias?|d)\b/g)];
+  for (const match of matches) {
+    const amount = Number(String(match[1]).replace(",", "."));
+    const unit = match[2];
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    if (/^s|^seg/.test(unit)) milliseconds += amount * 1000;
+    else if (/^min/.test(unit)) milliseconds += amount * 60 * 1000;
+    else if (/^h|^hr|^hora/.test(unit)) milliseconds += amount * 60 * 60 * 1000;
+    else if (/^d|^dia/.test(unit)) milliseconds += amount * 24 * 60 * 60 * 1000;
+  }
+
+  if (milliseconds < 1000 || milliseconds > 366 * 24 * 60 * 60 * 1000) return null;
+  return new Date(now + milliseconds);
+}
+
+function formatReminderDate(date) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
+async function createReminder({ event, settings, body, remindAt }) {
+  await db.query(
+    `INSERT INTO whatsapp_reminders
+      (instance_name, group_name, group_jid, sender_name, sender_jid, body, remind_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      event.instanceName,
+      settings.groupName || "",
+      event.remoteJid,
+      event.senderName || "",
+      event.senderJid || "",
+      body,
+      remindAt,
+    ],
+  );
+}
+
+async function dispatchDueReminders() {
+  await db.query(`
+    UPDATE whatsapp_reminders
+       SET status = 'pending'
+     WHERE status = 'sending'
+       AND remind_at < now() - interval '5 minutes'
+  `);
+
+  const result = await db.query(`
+    WITH due AS (
+      SELECT id
+        FROM whatsapp_reminders
+       WHERE status = 'pending'
+         AND remind_at <= now()
+       ORDER BY remind_at, id
+       LIMIT 10
+       FOR UPDATE SKIP LOCKED
+    )
+    UPDATE whatsapp_reminders reminder
+       SET status = 'sending'
+      FROM due
+     WHERE reminder.id = due.id
+     RETURNING reminder.*
+  `);
+
+  for (const reminder of result.rows) {
+    try {
+      const message = `Lembrete: ${reminder.body}`;
+      await sendWhatsAppText(reminder.instance_name || config.evolutionInstanceName, reminder.group_jid, message);
+      await saveOutboundReminderMessage(reminder, message);
+      await db.query(
+        "UPDATE whatsapp_reminders SET status = 'sent', sent_at = now(), last_error = NULL WHERE id = $1",
+        [reminder.id],
+      );
+    } catch (error) {
+      await db.query(
+        `UPDATE whatsapp_reminders
+            SET status = 'pending',
+                remind_at = now() + interval '1 minute',
+                last_error = $2
+          WHERE id = $1`,
+        [reminder.id, String(error.message || error).slice(0, 500)],
+      );
+    }
+  }
+}
+
+async function saveOutboundReminderMessage(reminder, body) {
+  await db.query(
+    `INSERT INTO whatsapp_messages
+      (instance_name, remote_jid, sender_name, direction, body, raw_payload)
+     VALUES ($1, $2, $3, 'outbound', $4, '{}'::jsonb)`,
+    [reminder.instance_name || config.evolutionInstanceName, reminder.group_jid, "bot", body],
+  );
 }
 
 function parseMonitorDate(text) {
@@ -2326,3 +2689,10 @@ async function saveAdsDispatch({ parsed, rawInput, match, message, status }) {
 app.listen(port, () => {
   console.log(`orchestrator listening on ${port}`);
 });
+
+const reminderTimer = setInterval(() => {
+  dispatchDueReminders().catch((error) => {
+    console.error("reminder dispatch failed", error);
+  });
+}, REMINDER_CHECK_INTERVAL_MS);
+reminderTimer.unref?.();

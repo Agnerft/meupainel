@@ -58,3 +58,21 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value JSONB NOT NULL DEFAULT '{}'::jsonb,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS whatsapp_reminders (
+  id BIGSERIAL PRIMARY KEY,
+  instance_name TEXT,
+  group_name TEXT,
+  group_jid TEXT NOT NULL,
+  sender_name TEXT,
+  sender_jid TEXT,
+  body TEXT NOT NULL,
+  remind_at TIMESTAMPTZ NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at TIMESTAMPTZ,
+  last_error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_whatsapp_reminders_due
+  ON whatsapp_reminders(status, remind_at);
