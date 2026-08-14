@@ -115,7 +115,7 @@ Depois do proxy criado, abra:
 https://painel.seudominio.com
 ```
 
-Cole o valor de `UI_ADMIN_TOKEN` para entrar. O painel mostra:
+Entre com `UI_ADMIN_USER` e `UI_ADMIN_PASSWORD`. O backend cria um cookie HTTP-only para a sessao do painel. O painel mostra:
 
 - status de PostgreSQL, Redis, Evolution API e OpenAI configurada;
 - total de mensagens, entradas, saidas e contatos;
@@ -144,7 +144,7 @@ POST https://meupainel.megaapp.tech/webhooks/ads/rafa/compra
 POST https://meupainel.megaapp.tech/webhooks/ads/rafa/lead
 ```
 
-Use o mesmo `ORCHESTRATOR_WEBHOOK_SECRET` no header `x-orchestrator-secret`, ou no campo/query `secret`.
+Use o mesmo `ORCHESTRATOR_WEBHOOK_SECRET` no header `x-orchestrator-secret`, ou no campo JSON `secret`. Nao envie esse segredo na query string.
 
 Payload minimo por evento:
 

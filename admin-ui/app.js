@@ -110,7 +110,6 @@ initTheme();
 updateActiveNav();
 
 async function api(path, options = {}) {
-  const token = localStorage.getItem("uiAdminToken") || "";
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs || 30000;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -120,7 +119,6 @@ async function api(path, options = {}) {
     signal: controller.signal,
     headers: {
       "content-type": "application/json",
-      "x-admin-token": token,
       ...(options.headers || {}),
     },
   }).catch((error) => {
@@ -159,12 +157,10 @@ async function loginAdmin() {
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
 
     localStorage.setItem("uiAdminUser", username);
-    localStorage.setItem("uiAdminToken", data.token || "");
     adminPasswordInput.value = "";
     lastUpdate.textContent = "Login realizado";
     loadSummary();
   } catch (error) {
-    localStorage.removeItem("uiAdminToken");
     lastUpdate.textContent = `Falha no login: ${error.message}`;
   } finally {
     saveTokenButton.disabled = false;
@@ -511,7 +507,7 @@ async function loadAdsFile() {
   adsSendButton.disabled = true;
 
   try {
-    if (/\.(xlsx?|csv)$/i.test(file.name)) {
+    if (/\.(xlsx|csv)$/i.test(file.name)) {
       const base64 = await fileToBase64(file);
       const data = await api("ads/import-file", {
         method: "POST",
@@ -802,8 +798,7 @@ async function sendAdsWithProgress(payload) {
     });
 
   return new Promise((resolve, reject) => {
-    const token = encodeURIComponent(localStorage.getItem("uiAdminToken") || "");
-    const events = new EventSource(`/api/ads/send-jobs/${encodeURIComponent(started.jobId)}/events?token=${token}`);
+    const events = new EventSource(`/api/ads/send-jobs/${encodeURIComponent(started.jobId)}/events`);
     events.onmessage = (event) => {
       const data = JSON.parse(event.data);
       showSendProgress(data);

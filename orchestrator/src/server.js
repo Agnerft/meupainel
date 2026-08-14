@@ -3,10 +3,11 @@ import crypto from "crypto";
 import OpenAI from "openai";
 import pg from "pg";
 import Redis from "ioredis";
-import XLSX from "xlsx";
+import readXlsxFile from "read-excel-file/node";
 
 const app = express();
-app.use(express.json({ limit: "80mb" }));
+app.set("trust proxy", 1);
+app.use(express.json({ limit: "25mb" }));
 
 const port = Number(process.env.PORT || 3000);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -34,8 +35,12 @@ const THE_BEST_API_URL = "https://api.painel.best/user/logs/";
 const THE_BEST_BASE_URL = "https://api.painel.best";
 const THE_BEST_ACTIONS = ["new", "extend", "trial-conversion"];
 const adsSendJobs = new Map();
+const rateLimitBuckets = new Map();
 const REMINDER_STATE_TTL_SECONDS = 6 * 60 * 60;
 const REMINDER_CHECK_INTERVAL_MS = 15 * 1000;
+const ADMIN_COOKIE_NAME = "mega_admin";
+const MAX_ADS_IMPORT_BYTES = 12 * 1024 * 1024;
+const MAX_ADS_IMPORT_ROWS = 5000;
 const EXTERNAL_ADS_CAMPAIGNS = [
   { key: "angelo", label: "ADS15 - ANGELO (2061)", aliases: ["ANGELO", "ADS15", "2061"] },
   { key: "rafa", label: "ADS17 - RAFA NATV (1757)", aliases: ["RAFA", "NATV", "ADS17", "1757"] },
@@ -73,15 +78,40 @@ app.get("/health", async (_req, res) => {
 
 await ensureSchema();
 
+function rateLimit({ windowMs, max, keyPrefix }) {
+  return (req, res, next) => {
+    const now = Date.now();
+    const key = `${keyPrefix}:${getClientIp(req)}`;
+    const bucket = rateLimitBuckets.get(key);
+
+    if (!bucket || bucket.resetAt <= now) {
+      rateLimitBuckets.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+
+    bucket.count += 1;
+    if (bucket.count > max) {
+      res.setHeader("Retry-After", String(Math.ceil((bucket.resetAt - now) / 1000)));
+      return res.status(429).json({ error: "too many requests" });
+    }
+
+    return next();
+  };
+}
+
+function getClientIp(req) {
+  return String(req.ip || req.socket?.remoteAddress || "unknown");
+}
+
 function requireAdmin(req, res, next) {
-  const token = req.header("x-admin-token") || req.query?.token;
+  const token = req.header("x-admin-token") || getCookie(req, ADMIN_COOKIE_NAME);
   if (config.uiAdminToken && token !== config.uiAdminToken) {
     return res.status(401).json({ error: "invalid admin token" });
   }
   next();
 }
 
-app.post("/admin/login", async (req, res) => {
+app.post("/admin/login", rateLimit({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: "admin-login" }), async (req, res) => {
   const username = String(req.body?.username || "").trim();
   const password = String(req.body?.password || "");
 
@@ -93,7 +123,8 @@ app.post("/admin/login", async (req, res) => {
     return res.status(401).json({ error: "login ou senha invalidos" });
   }
 
-  res.json({ ok: true, token: config.uiAdminToken, username });
+  setAdminCookie(req, res, config.uiAdminToken);
+  res.json({ ok: true, username });
 });
 
 app.get("/admin/summary", requireAdmin, async (_req, res) => {
@@ -244,18 +275,23 @@ app.post("/admin/ads/import-file", requireAdmin, async (req, res) => {
     const base64 = String(req.body?.base64 || "");
     const pix = String(req.body?.pix || "").trim();
     if (!base64) return res.status(400).json({ error: "base64 is required" });
-
-    const buffer = Buffer.from(base64, "base64");
-    if (/\.(xlsx?|csv)$/i.test(filename)) {
-      const result = await parseAdsWorkbook(buffer, { filename, pix });
-      return res.json(result);
+    if (!/\.(xlsx|csv)$/i.test(filename)) {
+      return res.status(400).json({ error: "unsupported file type" });
+    }
+    if (!isLikelyBase64(base64)) {
+      return res.status(400).json({ error: "invalid base64" });
+    }
+    if (estimateBase64Bytes(base64) > MAX_ADS_IMPORT_BYTES) {
+      return res.status(413).json({ error: "file is too large" });
     }
 
-    return res.json({
-      text: buffer.toString("utf8"),
-      entries: 0,
-      source: "text",
-    });
+    const buffer = Buffer.from(base64, "base64");
+    if (buffer.length > MAX_ADS_IMPORT_BYTES) {
+      return res.status(413).json({ error: "file is too large" });
+    }
+
+    const result = await parseAdsWorkbook(buffer, { filename, pix });
+    return res.json(result);
   } catch (error) {
     console.error("ads import failed", error);
     return res.status(502).json({ error: "ads import failed", detail: String(error.message || error) });
@@ -712,9 +748,12 @@ async function ensureSchema() {
   `);
 }
 
-app.post("/webhooks/evolution", async (req, res) => {
-  const providedSecret = req.header("x-orchestrator-secret") || req.query.secret;
-  if (config.webhookSecret && !String(providedSecret || "").startsWith(config.webhookSecret)) {
+app.post("/webhooks/evolution", rateLimit({ windowMs: 60 * 1000, max: 600, keyPrefix: "webhook-evolution" }), async (req, res) => {
+  const providedSecret = req.header("x-orchestrator-secret");
+  const providedApiKey = req.body?.apikey;
+  const secretMatches = config.webhookSecret && String(providedSecret || "").startsWith(config.webhookSecret);
+  const apiKeyMatches = config.evolutionApiKey && providedApiKey === config.evolutionApiKey;
+  if (!secretMatches && !apiKeyMatches) {
     return res.status(401).json({ error: "invalid webhook secret" });
   }
 
@@ -750,8 +789,8 @@ app.post("/webhooks/evolution", async (req, res) => {
   }
 });
 
-app.post("/webhooks/ads/:campaign", async (req, res) => {
-  const providedSecret = req.header("x-orchestrator-secret") || req.query.secret || req.body?.secret;
+app.post("/webhooks/ads/:campaign", rateLimit({ windowMs: 60 * 1000, max: 120, keyPrefix: "webhook-ads" }), async (req, res) => {
+  const providedSecret = req.header("x-orchestrator-secret") || req.body?.secret;
   if (config.webhookSecret && !String(providedSecret || "").startsWith(config.webhookSecret)) {
     return res.status(401).json({ error: "invalid webhook secret" });
   }
@@ -775,8 +814,8 @@ app.post("/webhooks/ads/:campaign", async (req, res) => {
   });
 });
 
-app.post("/webhooks/ads/:campaign/:event", async (req, res) => {
-  const providedSecret = req.header("x-orchestrator-secret") || req.query.secret || req.body?.secret;
+app.post("/webhooks/ads/:campaign/:event", rateLimit({ windowMs: 60 * 1000, max: 120, keyPrefix: "webhook-ads-event" }), async (req, res) => {
+  const providedSecret = req.header("x-orchestrator-secret") || req.body?.secret;
   if (config.webhookSecret && !String(providedSecret || "").startsWith(config.webhookSecret)) {
     return res.status(401).json({ error: "invalid webhook secret" });
   }
@@ -1891,16 +1930,91 @@ function formatShortDate(date) {
   return day && month ? `${day}/${month}` : normalized;
 }
 
+async function parseXlsxRows(buffer) {
+  const table = await readXlsxFile(buffer, { sheet: 1 });
+  return tableToObjects(table);
+}
+
+function parseCsvRows(buffer) {
+  const text = buffer.toString("utf8").replace(/^\uFEFF/, "");
+  const delimiter = detectCsvDelimiter(text);
+  const table = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (quoted) {
+      if (char === '"' && next === '"') {
+        cell += '"';
+        index += 1;
+      } else if (char === '"') {
+        quoted = false;
+      } else {
+        cell += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      quoted = true;
+    } else if (char === delimiter) {
+      row.push(cell);
+      cell = "";
+    } else if (char === "\n") {
+      row.push(cell);
+      table.push(row);
+      row = [];
+      cell = "";
+    } else if (char !== "\r") {
+      cell += char;
+    }
+  }
+
+  if (cell || row.length) {
+    row.push(cell);
+    table.push(row);
+  }
+
+  return tableToObjects(table);
+}
+
+function detectCsvDelimiter(text) {
+  const firstLine = String(text || "").split(/\r?\n/, 1)[0] || "";
+  const commas = (firstLine.match(/,/g) || []).length;
+  const semicolons = (firstLine.match(/;/g) || []).length;
+  return semicolons > commas ? ";" : ",";
+}
+
+function tableToObjects(table) {
+  const [headerRow, ...dataRows] = table.filter((row) =>
+    Array.isArray(row) && row.some((cell) => String(cell ?? "").trim())
+  );
+  if (!headerRow?.length) return [];
+
+  const counts = new Map();
+  const headers = headerRow.map((header, index) => {
+    const base = String(header ?? `coluna_${index + 1}`).trim() || `coluna_${index + 1}`;
+    const count = counts.get(base) || 0;
+    counts.set(base, count + 1);
+    return count ? `${base}_${count + 1}` : base;
+  });
+
+  return dataRows.map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""])));
+}
+
 async function parseAdsWorkbook(buffer, options = {}) {
   const pixDetails = parsePixDetails(options.pix || "");
-  const source = /\.csv$/i.test(options.filename || "") ? "csv" : "xlsx";
-  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: false });
-  const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
-  if (!sheet) return { text: "", entries: 0, source };
-
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+  const filename = String(options.filename || "");
+  const source = /\.csv$/i.test(filename) ? "csv" : "xlsx";
+  const rows = source === "csv" ? parseCsvRows(buffer) : await parseXlsxRows(buffer);
   if (!rows.length) return { text: "", entries: 0, source };
+  if (rows.length > MAX_ADS_IMPORT_ROWS) {
+    throw new Error(`Planilha excede o limite de ${MAX_ADS_IMPORT_ROWS} linhas`);
+  }
 
   const headers = Object.keys(rows[0]);
   const campaignKey = findHeader(headers, [
@@ -2109,10 +2223,8 @@ function normalizeDateCell(value) {
     return value.toISOString().slice(0, 10);
   }
   if (typeof value === "number" && Number.isFinite(value)) {
-    const parsed = XLSX.SSF.parse_date_code(Math.round(value));
-    if (parsed?.y && parsed?.m && parsed?.d) {
-      return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
-    }
+    const parsed = excelSerialDateToIso(value);
+    if (parsed) return parsed;
   }
 
   const text = String(value).trim();
@@ -2123,6 +2235,14 @@ function normalizeDateCell(value) {
   if (br) return `${br[3]}-${br[2].padStart(2, "0")}-${br[1].padStart(2, "0")}`;
 
   return null;
+}
+
+function excelSerialDateToIso(value) {
+  const serial = Math.floor(Number(value));
+  if (!Number.isFinite(serial) || serial <= 0) return null;
+  const excelEpoch = Date.UTC(1899, 11, 30);
+  const date = new Date(excelEpoch + serial * 24 * 60 * 60 * 1000);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
 }
 
 function formatDecimal(value) {
@@ -2658,6 +2778,39 @@ function parseJsonEnv(value, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function getCookie(req, name) {
+  const cookieHeader = String(req.headers.cookie || "");
+  for (const part of cookieHeader.split(";")) {
+    const [rawName, ...rawValue] = part.trim().split("=");
+    if (rawName === name) return decodeURIComponent(rawValue.join("=") || "");
+  }
+  return "";
+}
+
+function setAdminCookie(req, res, token) {
+  const secure = req.secure || String(req.header("x-forwarded-proto") || "").split(",")[0] === "https";
+  const attributes = [
+    `${ADMIN_COOKIE_NAME}=${encodeURIComponent(token)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=43200",
+  ];
+  if (secure) attributes.push("Secure");
+  res.setHeader("Set-Cookie", attributes.join("; "));
+}
+
+function isLikelyBase64(value) {
+  const text = String(value || "").replace(/\s+/g, "");
+  return Boolean(text) && text.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(text);
+}
+
+function estimateBase64Bytes(value) {
+  const text = String(value || "").replace(/\s+/g, "");
+  const padding = text.endsWith("==") ? 2 : text.endsWith("=") ? 1 : 0;
+  return Math.floor((text.length * 3) / 4) - padding;
 }
 
 async function saveAdsDispatch({ parsed, rawInput, match, message, status }) {
