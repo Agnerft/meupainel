@@ -748,7 +748,7 @@ async function ensureSchema() {
   `);
 }
 
-app.post("/webhooks/evolution", rateLimit({ windowMs: 60 * 1000, max: 600, keyPrefix: "webhook-evolution" }), async (req, res) => {
+app.post(["/webhooks/evolution", "/webhooks/evolution/:event"], rateLimit({ windowMs: 60 * 1000, max: 600, keyPrefix: "webhook-evolution" }), async (req, res) => {
   const providedSecret = req.header("x-orchestrator-secret");
   const providedApiKey = req.body?.apikey;
   const secretMatches = config.webhookSecret && String(providedSecret || "").startsWith(config.webhookSecret);
