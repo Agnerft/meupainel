@@ -179,8 +179,16 @@ async function loadSummary() {
     loadAdsHistory();
     lastUpdate.textContent = new Date().toLocaleString("pt-BR");
   } catch (error) {
-    lastUpdate.textContent = "Falha ao carregar";
-    renderWhatsAppStatus({ connected: false, state: "erro" });
+    const unauthorized = error.message === "invalid admin token" || error.message === "HTTP 401";
+    lastUpdate.textContent = unauthorized ? "Sessao expirada. Entre novamente." : "Falha ao carregar";
+    if (unauthorized) {
+      whatsappIndicator.classList.remove("connected");
+      whatsappIndicator.classList.add("disconnected");
+      whatsappIndicator.querySelector("strong").textContent = "Login necessario";
+      whatsappIndicator.querySelector("small").textContent = "Entre novamente para ver o status.";
+    } else {
+      renderWhatsAppStatus({ connected: false, state: "erro" });
+    }
     statusStrip.innerHTML = `<div class="statusItem"><span>Painel</span><strong class="fail">${escapeHtml(error.message)}</strong></div>`;
   }
 }
