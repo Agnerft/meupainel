@@ -40,6 +40,15 @@ const evolutionInstanceTokenCache = new Map();
 const REMINDER_STATE_TTL_SECONDS = 6 * 60 * 60;
 const REMINDER_CHECK_INTERVAL_MS = 15 * 1000;
 const RESELLER_MENU_TTL_SECONDS = 10 * 60;
+const MONITOR_FOLLOWUP_DELAY_MS = 60 * 1000;
+const MONITOR_FOLLOWUP_TTL_SECONDS = 5 * 60;
+const MONITOR_FOLLOWUP_BODY = "__monitor_followup_question__";
+const MONITOR_FOLLOWUP_MESSAGE = [
+  "Quer algo mais?",
+  "",
+  "1 - Sim",
+  "2 - Nao",
+].join("\n");
 const ADMIN_COOKIE_NAME = "mega_admin";
 const MAX_ADS_IMPORT_BYTES = 12 * 1024 * 1024;
 const MAX_ADS_IMPORT_ROWS = 5000;
@@ -1184,7 +1193,9 @@ async function handleMonitorGroupCommand(event) {
 
   if (await handleResellerMenuConversation(event)) return true;
   if (await handleReminderConversation(event, settings)) return true;
+  if (await handleMonitorFollowupResponse(event)) return true;
 
+  const mainMenuOption = parseMainMonitorMenuOption(event.text);
   const command = normalizeMonitorCommand(event.text);
   if (!command) return true;
 
@@ -1221,7 +1232,17 @@ async function handleMonitorGroupCommand(event) {
     await saveOutboundMessage(event, message);
   }
 
+  if (mainMenuOption && mainMenuOption !== "3") {
+    await scheduleMonitorFollowupQuestion(event, settings);
+  }
+
   return true;
+}
+
+function parseMainMonitorMenuOption(text) {
+  const normalized = normalizeText(text);
+  if (["1", "01", "2", "02", "3", "03"].includes(normalized)) return normalized.replace(/^0/, "");
+  return "";
 }
 
 function normalizeMonitorCommand(text) {
@@ -1314,6 +1335,7 @@ function isGeneratedMonitorMessage(text) {
   const value = String(text || "").trim();
   return /^Rank revendas\s+-/i.test(value) ||
     /^📊\s*\**Ranking das Revendas/i.test(value) ||
+    /^Menu\r?\n/i.test(value) ||
     /^Menu de comandos\b/i.test(value) ||
     /^Status ADS\s+-/i.test(value) ||
     /^Creditos TDS\b/i.test(value) ||
@@ -1329,6 +1351,7 @@ function isGeneratedMonitorMessage(text) {
     /^Qual lembrete voce quer salvar\?/i.test(value) ||
     /^Daqui quanto tempo/i.test(value) ||
     /^Lembrete salvo\b/i.test(value) ||
+    /^Quer algo mais\?/i.test(value) ||
     /^Lembrete:/i.test(value);
 }
 
@@ -1604,6 +1627,52 @@ async function clearReminderState(event) {
   await redis.del(reminderStateKey(event));
 }
 
+async function handleMonitorFollowupResponse(event) {
+  const key = monitorFollowupStateKey(event);
+  const state = await redis.get(key);
+  if (!state) return false;
+
+  const normalized = normalizeText(event.text);
+  if (["1", "01", "SIM", "S", "QUERO", "MENU"].includes(normalized)) {
+    await redis.del(key);
+    const message = buildMonitorMenuMessage();
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+    return true;
+  }
+
+  if (["2", "02", "NAO", "N", "NAO QUERO", "OBRIGADO", "VALEU"].includes(normalized)) {
+    await redis.del(key);
+    const message = "Fechado. Se precisar, mande menu.";
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+    return true;
+  }
+
+  await sendWhatsAppText(event.instanceName, event.remoteJid, MONITOR_FOLLOWUP_MESSAGE);
+  await saveOutboundMessage(event, MONITOR_FOLLOWUP_MESSAGE);
+  return true;
+}
+
+async function scheduleMonitorFollowupQuestion(event, settings) {
+  const scheduledKey = `${monitorFollowupStateKey(event)}:scheduled`;
+  const scheduled = await redis.set(scheduledKey, "1", "EX", 2 * 60, "NX");
+  if (!scheduled) return;
+
+  await createReminder({
+    event,
+    settings,
+    body: MONITOR_FOLLOWUP_BODY,
+    remindAt: new Date(Date.now() + MONITOR_FOLLOWUP_DELAY_MS),
+  });
+}
+
+function monitorFollowupStateKey(eventOrReminder) {
+  const actor = eventOrReminder.senderJid || eventOrReminder.sender_jid || eventOrReminder.senderName || eventOrReminder.sender_name || "sem-remetente";
+  const group = eventOrReminder.remoteJid || eventOrReminder.group_jid || "";
+  return `monitor-followup-state:${group}:${actor}`;
+}
+
 function parseReminderDueAt(text) {
   const value = String(text || "")
     .normalize("NFD")
@@ -1690,7 +1759,13 @@ async function dispatchDueReminders() {
 
   for (const reminder of result.rows) {
     try {
-      const message = `Lembrete: ${reminder.body}`;
+      const isMonitorFollowup = reminder.body === MONITOR_FOLLOWUP_BODY;
+      const message = isMonitorFollowup ? MONITOR_FOLLOWUP_MESSAGE : `Lembrete: ${reminder.body}`;
+      if (isMonitorFollowup) {
+        const followupKey = monitorFollowupStateKey(reminder);
+        await redis.set(followupKey, "1", "EX", MONITOR_FOLLOWUP_TTL_SECONDS);
+        await redis.del(`${followupKey}:scheduled`);
+      }
       await sendWhatsAppText(reminder.instance_name || config.evolutionInstanceName, reminder.group_jid, message);
       await saveOutboundReminderMessage(reminder, message);
       await db.query(
