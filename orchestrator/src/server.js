@@ -1223,6 +1223,12 @@ async function handleMonitorGroupCommand(event) {
     const message = await buildTdsRankMessage(command.date);
     await sendWhatsAppText(event.instanceName, event.remoteJid, message);
     await saveOutboundMessage(event, message);
+  } else if (command.type === "customer-lookup") {
+    const message = command.query
+      ? await buildCustomerLookupMessage(command.query)
+      : "Consulta de cliente\n\nUse: cliente 51999999999\nOu: cliente usuario";
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
   } else if (command.type === "reseller-menu-start") {
     await startResellerMenu(event);
   } else if (command.type === "reminder-start") {
@@ -1259,6 +1265,12 @@ function normalizeMonitorCommand(text) {
   if (["1", "01"].includes(normalized)) return "status";
   if (["2", "02"].includes(normalized)) return { type: "tds-credit-status", username: "" };
   if (["3", "03"].includes(normalized)) return { type: "reseller-menu-start" };
+  if (["6", "06"].includes(normalized)) return { type: "customer-lookup", query: "" };
+
+  const customerMatch = String(text || "").trim().match(/^(?:cliente|client|consulta|buscar)\s+(.+)$/i);
+  if (customerMatch) {
+    return { type: "customer-lookup", query: customerMatch[1].trim() };
+  }
 
   if (["REVENDA", "REVENDAS", "MENU REVENDA", "MENU REVENDAS"].includes(normalized)) {
     return { type: "reseller-menu-start" };
@@ -1322,6 +1334,7 @@ function buildMonitorMenuMessage() {
     "1 - Status ADS",
     "2 - Creditos TDS",
     "3 - Menu revendas",
+    "6 - Consulta de cliente",
     "",
     "Outros comandos:",
     "rank revendas",
@@ -2044,6 +2057,134 @@ async function buildTdsRankMessage(date = getTheBestDate()) {
 
   if (items.length > 30) lines.push("", `+${items.length - 30} revendas com movimento.`);
   return lines.join("\n");
+}
+
+async function buildCustomerLookupMessage(query) {
+  const value = String(query || "").trim();
+  if (!value) return "Use: cliente 51999999999\nOu: cliente usuario";
+
+  try {
+    const matches = await findTheBestLines(value);
+    if (!matches.length) {
+      return [
+        "CLIENTE NAO ENCONTRADO",
+        "",
+        `Busca: ${value}`,
+        "Tente pelo telefone com DDD ou pelo usuario da linha.",
+      ].join("\n");
+    }
+
+    if (matches.length > 1) {
+      return [
+        "ENCONTREI MAIS DE UM CLIENTE",
+        "",
+        ...matches.slice(0, 8).map((line, index) => `${index + 1}. ${line.username || "-"} | ${maskPhone(line.phone)} | Revenda: ${line.user_username || "-"}`),
+        "",
+        "Refine a busca com o usuario completo ou telefone completo.",
+      ].join("\n");
+    }
+
+    const line = matches[0];
+    const logs = await fetchTheBestLineLogs(line.id);
+    return formatCustomerLookupMessage(line, logs);
+  } catch (error) {
+    console.error("customer lookup failed", error);
+    return `Falha ao consultar cliente: ${String(error.message || error).slice(0, 140)}`;
+  }
+}
+
+async function findTheBestLines(query) {
+  const data = await fetchTheBestJson(`/lines/?page=1&per_page=20&search=${encodeURIComponent(query)}`);
+  const results = Array.isArray(data.results) ? data.results : [];
+  const queryNorm = normalizeText(query).replace(/\s+/g, "");
+  const queryDigits = extractDigits(query).join("");
+
+  const scored = results
+    .map((line) => ({ line, score: scoreTheBestLineMatch(line, queryNorm, queryDigits) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (!scored.length) return [];
+  const bestScore = scored[0].score;
+  return scored.filter((item) => item.score === bestScore).map((item) => item.line);
+}
+
+function scoreTheBestLineMatch(line, queryNorm, queryDigits) {
+  const username = normalizeText(line.username).replace(/\s+/g, "");
+  const phoneDigits = extractDigits(line.phone).join("");
+  const email = normalizeText(line.email).replace(/\s+/g, "");
+
+  if (queryDigits && phoneDigits && phoneDigits === queryDigits) return 100;
+  if (queryDigits && phoneDigits && phoneDigits.endsWith(queryDigits)) return queryDigits.length >= 8 ? 95 : 55;
+  if (queryNorm && username === queryNorm) return 90;
+  if (queryNorm && email === queryNorm) return 85;
+  if (queryNorm && username.includes(queryNorm)) return queryNorm.length >= 4 ? 60 : 20;
+  if (queryDigits && phoneDigits.includes(queryDigits)) return queryDigits.length >= 6 ? 50 : 10;
+  return 0;
+}
+
+async function fetchTheBestLineLogs(lineId) {
+  if (!lineId) return [];
+  const data = await fetchTheBestJson(`/user/logs/?line_id=${encodeURIComponent(lineId)}&page=1&per_page=100`);
+  return Array.isArray(data.results) ? data.results : [];
+}
+
+function formatCustomerLookupMessage(line, logs = []) {
+  const renewals = logs.filter((log) => normalizeText(log.action) === "EXTEND").length;
+  const paidLog = logs.find((log) => Number(log.cost || 0) > 0);
+  const planValue = Number(line.plan_value || 0);
+  const lastPayment = paidLog
+    ? formatMoney(Number(paidLog.cost || 0), "BRL")
+    : planValue > 0 ? formatMoney(planValue, "BRL") : "-";
+
+  return [
+    "CLIENTE ENCONTRADO",
+    "",
+    `Usuario: ${line.username || "-"}`,
+    line.phone ? `Telefone: ${maskPhone(line.phone)}` : null,
+    `Status: ${formatLineStatus(line)}`,
+    `Plano: ${formatLinePlan(line)}`,
+    `Vencimento: ${formatUnixShortDate(line.exp_date)}`,
+    `Revenda: ${line.user_username || "-"}`,
+    `Telas: ${line.max_connections || "-"}`,
+    `Ultimo pagamento: ${lastPayment}`,
+    `Renovacoes: ${formatCount(renewals)}`,
+    `Cadastro: ${formatUnixShortDate(line.created_at)}`,
+  ].filter(Boolean).join("\n");
+}
+
+function formatLineStatus(line) {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (!line.is_enabled) return "🔴 Bloqueado";
+  if (Number(line.exp_date || 0) > 0 && Number(line.exp_date) < nowSeconds) return "🔴 Vencido";
+  if (String(line.status || "").toLowerCase() === "trial" || line.is_trial) return "🟡 Teste";
+  return "🟢 Ativo";
+}
+
+function formatLinePlan(line) {
+  if (line.is_trial || String(line.status || "").toLowerCase() === "trial") return "Teste";
+  if (line.type && typeof line.type === "string") return line.type;
+  if (Number(line.plan_value || 0) > 0) return `Mensal (${formatMoney(Number(line.plan_value), "BRL")})`;
+  return "Mensal";
+}
+
+function formatUnixShortDate(value) {
+  const seconds = Number(value || 0);
+  if (!Number.isFinite(seconds) || seconds <= 0) return "-";
+  const date = new Date(seconds * 1000);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function maskPhone(value) {
+  const digits = extractDigits(value).join("");
+  if (digits.length <= 4) return digits || "-";
+  return `${digits.slice(0, 4)}*****${digits.slice(-4)}`;
 }
 
 function pluralize(value, singular, plural) {
