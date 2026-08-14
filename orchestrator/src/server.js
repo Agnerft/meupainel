@@ -1407,11 +1407,21 @@ async function handleResellerMenuConversation(event) {
   }
 
   if (state.step === "choose_reseller") {
+    const quickCredit = parseQuickResellerCredit(state.resellers || [], text);
+    if (quickCredit) {
+      const message = await adjustTdsResellerCreditsById(quickCredit.reseller, quickCredit.amount, "add");
+      await clearResellerMenuState(event);
+      await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+      await saveOutboundMessage(event, message);
+      return true;
+    }
+
     const reseller = pickResellerFromMenu(state.resellers || [], text);
     if (!reseller) {
       const message = [
         "Nao entendi qual revenda.",
-        "Responda com o numero da lista ou com parte do usuario.",
+        "Responda com o numero da lista, parte do usuario ou use o atalho: numero quantidade.",
+        "Exemplo: 3 15",
         "",
         buildResellerMenuMessage(state.resellers || []),
       ].join("\n");
@@ -1434,7 +1444,8 @@ async function handleResellerMenuConversation(event) {
       "1 - Adicionar creditos",
       "2 - Remover creditos",
       "",
-      "Responda 1 ou 2. Para cancelar, mande cancelar.",
+      "Atalho: mande 5, 10, 15 ou 20 para adicionar direto.",
+      "Para cancelar, mande cancelar.",
     ].join("\n");
     await sendWhatsAppText(event.instanceName, event.remoteJid, message);
     await saveOutboundMessage(event, message);
@@ -1442,9 +1453,18 @@ async function handleResellerMenuConversation(event) {
   }
 
   if (state.step === "choose_action") {
+    const directAmount = parseResellerMenuAmount(text);
+    if (directAmount) {
+      const message = await adjustTdsResellerCreditsById(state.reseller, directAmount, "add");
+      await clearResellerMenuState(event);
+      await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+      await saveOutboundMessage(event, message);
+      return true;
+    }
+
     const action = parseResellerMenuAction(text);
     if (!action) {
-      const message = "Responda 1 para adicionar ou 2 para remover. Para cancelar, mande cancelar.";
+      const message = "Mande 5, 10, 15 ou 20 para adicionar direto. Ou responda 1 para adicionar / 2 para remover.";
       await sendWhatsAppText(event.instanceName, event.remoteJid, message);
       await saveOutboundMessage(event, message);
       return true;
@@ -1492,7 +1512,10 @@ function buildResellerMenuMessage(resellers) {
   const lines = [
     "Menu de revendas",
     "",
-    "Escolha a revenda respondendo o numero:",
+    "Para adicionar rapido, mande: numero quantidade",
+    "Exemplo: 3 15",
+    "",
+    "Ou escolha a revenda respondendo so o numero:",
     "",
     ...items.map((item, index) => `${index + 1}. ${item.username} - ${formatDecimal(item.credits)} creditos`),
   ];
@@ -1516,6 +1539,27 @@ function pickResellerFromMenu(resellers, text) {
   if (!filter) return null;
   const matches = resellers.filter((item) => item.username.toLowerCase().includes(filter));
   return matches.length === 1 ? matches[0] : null;
+}
+
+function parseQuickResellerCredit(resellers, text) {
+  const match = String(text || "").trim().match(/^(\d+)\s+(\d+(?:[.,]\d+)?)(?:\s+creditos?)?$/i);
+  if (!match) return null;
+
+  const first = Number(match[1]);
+  const second = parseMoney(match[2]);
+  const firstAsReseller = Number.isInteger(first) ? resellers[first - 1] : null;
+  if (firstAsReseller && RESELLER_MENU_AMOUNTS.includes(second)) {
+    return { reseller: firstAsReseller, amount: second };
+  }
+
+  const firstAsAmount = parseMoney(match[1]);
+  const secondAsIndex = Number(match[2]);
+  const secondAsReseller = Number.isInteger(secondAsIndex) ? resellers[secondAsIndex - 1] : null;
+  if (secondAsReseller && RESELLER_MENU_AMOUNTS.includes(firstAsAmount)) {
+    return { reseller: secondAsReseller, amount: firstAsAmount };
+  }
+
+  return null;
 }
 
 function parseResellerMenuAction(text) {
