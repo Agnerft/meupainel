@@ -36,6 +36,7 @@ const THE_BEST_BASE_URL = "https://api.painel.best";
 const THE_BEST_ACTIONS = ["new", "extend", "trial-conversion"];
 const adsSendJobs = new Map();
 const rateLimitBuckets = new Map();
+const evolutionInstanceTokenCache = new Map();
 const REMINDER_STATE_TTL_SECONDS = 6 * 60 * 60;
 const REMINDER_CHECK_INTERVAL_MS = 15 * 1000;
 const ADMIN_COOKIE_NAME = "mega_admin";
@@ -607,6 +608,34 @@ async function fetchEvolutionInstanceDetails(instanceName) {
   return response.json().catch(() => null);
 }
 
+async function isValidEvolutionWebhook(req) {
+  const providedSecret = req.header("x-orchestrator-secret");
+  if (config.webhookSecret && String(providedSecret || "").startsWith(config.webhookSecret)) return true;
+
+  const providedApiKey = String(req.body?.apikey || "");
+  if (!providedApiKey) return false;
+  if (config.evolutionApiKey && providedApiKey === config.evolutionApiKey) return true;
+
+  const instanceName = String(req.body?.instance || config.evolutionInstanceName || "");
+  const instanceToken = await getEvolutionInstanceToken(instanceName);
+  return Boolean(instanceToken && providedApiKey === instanceToken);
+}
+
+async function getEvolutionInstanceToken(instanceName) {
+  if (!instanceName) return "";
+  const cached = evolutionInstanceTokenCache.get(instanceName);
+  if (cached?.expiresAt > Date.now()) return cached.token;
+
+  const details = await fetchEvolutionInstanceDetails(instanceName);
+  const first = Array.isArray(details) ? details[0] : details;
+  const token = typeof first?.token === "string" ? first.token : "";
+  evolutionInstanceTokenCache.set(instanceName, {
+    token,
+    expiresAt: Date.now() + 5 * 60 * 1000,
+  });
+  return token;
+}
+
 function findFirstString(value, keys) {
   if (!value || typeof value !== "object") return "";
   const queue = [value];
@@ -749,11 +778,7 @@ async function ensureSchema() {
 }
 
 app.post(["/webhooks/evolution", "/webhooks/evolution/:event"], rateLimit({ windowMs: 60 * 1000, max: 600, keyPrefix: "webhook-evolution" }), async (req, res) => {
-  const providedSecret = req.header("x-orchestrator-secret");
-  const providedApiKey = req.body?.apikey;
-  const secretMatches = config.webhookSecret && String(providedSecret || "").startsWith(config.webhookSecret);
-  const apiKeyMatches = config.evolutionApiKey && providedApiKey === config.evolutionApiKey;
-  if (!secretMatches && !apiKeyMatches) {
+  if (!(await isValidEvolutionWebhook(req))) {
     return res.status(401).json({ error: "invalid webhook secret" });
   }
 
