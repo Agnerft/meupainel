@@ -1190,7 +1190,17 @@ async function handleMonitorGroupCommand(event) {
 
   if (command === "menu") {
     const message = buildMonitorMenuMessage();
-    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await sendWhatsAppButtons(event.instanceName, event.remoteJid, {
+      title: "Menu de comandos",
+      description: "Escolha uma opcao ou envie o comando digitado.",
+      footer: "Mega App",
+      fallbackText: message,
+      buttons: [
+        { id: "status", text: "Status ADS" },
+        { id: "quantos creditos", text: "Creditos TDS" },
+        { id: "revenda", text: "Menu revendas" },
+      ],
+    });
     await saveOutboundMessage(event, message);
   } else if (command === "status") {
     const message = await buildAdsStatusMessage();
@@ -1427,7 +1437,17 @@ async function handleResellerMenuConversation(event) {
       "",
       "Responda 1 ou 2. Para cancelar, mande cancelar.",
     ].join("\n");
-    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await sendWhatsAppButtons(event.instanceName, event.remoteJid, {
+      title: `Revenda: ${reseller.username}`,
+      description: `Saldo atual: ${formatDecimal(reseller.credits)}\nO que voce quer fazer?`,
+      footer: "Mega App",
+      fallbackText: message,
+      buttons: [
+        { id: "1", text: "Adicionar creditos" },
+        { id: "2", text: "Remover creditos" },
+        { id: "cancelar", text: "Cancelar" },
+      ],
+    });
     await saveOutboundMessage(event, message);
     return true;
   }
@@ -1453,7 +1473,17 @@ async function handleResellerMenuConversation(event) {
       "",
       "Responda com 5, 10, 15 ou 20.",
     ].join("\n");
-    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await sendWhatsAppButtons(event.instanceName, event.remoteJid, {
+      title: "Quantidade de creditos",
+      description: "Escolha uma quantidade. Para 15, envie 15 digitado.",
+      footer: "Mega App",
+      fallbackText: message,
+      buttons: [
+        { id: "5", text: "5 creditos" },
+        { id: "10", text: "10 creditos" },
+        { id: "20", text: "20 creditos" },
+      ],
+    });
     await saveOutboundMessage(event, message);
     return true;
   }
@@ -1986,6 +2016,21 @@ async function sendWhatsAppText(instanceName, remoteJid, text) {
   return sendEvolutionText(instanceName, remoteJid, text);
 }
 
+async function sendWhatsAppButtons(instanceName, remoteJid, options = {}) {
+  const fallbackText = options.fallbackText || [
+    options.title,
+    options.description,
+    ...(options.buttons || []).map((button, index) => `${index + 1}. ${button.text || button.id}`),
+  ].filter(Boolean).join("\n");
+
+  try {
+    await sendEvolutionButtons(instanceName, remoteJid, options);
+  } catch (error) {
+    console.warn("Evolution buttons failed, falling back to text", error.message);
+    await sendWhatsAppText(instanceName, remoteJid, fallbackText);
+  }
+}
+
 async function sendEvolutionText(instanceName, remoteJid, text) {
   if (!instanceName || !remoteJid || !text) return;
 
@@ -2008,6 +2053,40 @@ async function sendEvolutionText(instanceName, remoteJid, text) {
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`Evolution sendText failed: ${response.status} ${body}`);
+  }
+}
+
+async function sendEvolutionButtons(instanceName, remoteJid, options = {}) {
+  const buttons = (options.buttons || []).slice(0, 3).filter((button) => button?.text || button?.id);
+  if (!instanceName || !remoteJid || !buttons.length) return;
+
+  const url = `${config.evolutionBaseUrl}/message/sendButtons/${encodeURIComponent(instanceName)}`;
+  const number = remoteJid.endsWith("@s.whatsapp.net")
+    ? remoteJid.replace("@s.whatsapp.net", "")
+    : remoteJid;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      apikey: config.evolutionApiKey,
+    },
+    body: JSON.stringify({
+      number,
+      title: options.title || "Opcoes",
+      description: options.description || "",
+      footer: options.footer || "",
+      buttons: buttons.map((button) => ({
+        type: "reply",
+        id: String(button.id || button.text),
+        title: String(button.text || button.id),
+        displayText: String(button.text || button.id),
+      })),
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Evolution sendButtons failed: ${response.status} ${body}`);
   }
 }
 
