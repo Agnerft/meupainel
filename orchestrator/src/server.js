@@ -39,9 +39,11 @@ const rateLimitBuckets = new Map();
 const evolutionInstanceTokenCache = new Map();
 const REMINDER_STATE_TTL_SECONDS = 6 * 60 * 60;
 const REMINDER_CHECK_INTERVAL_MS = 15 * 1000;
+const RESELLER_MENU_TTL_SECONDS = 10 * 60;
 const ADMIN_COOKIE_NAME = "mega_admin";
 const MAX_ADS_IMPORT_BYTES = 12 * 1024 * 1024;
 const MAX_ADS_IMPORT_ROWS = 5000;
+const RESELLER_MENU_AMOUNTS = [5, 10, 15, 20];
 const EXTERNAL_ADS_CAMPAIGNS = [
   { key: "angelo", label: "ADS15 - ANGELO (2061)", aliases: ["ANGELO", "ADS15", "2061"] },
   { key: "rafa", label: "ADS17 - RAFA NATV (1757)", aliases: ["RAFA", "NATV", "ADS17", "1757"] },
@@ -1004,8 +1006,17 @@ function normalizeEvolutionMessage(payload) {
   const text =
     message?.conversation ||
     message?.extendedTextMessage?.text ||
+    message?.buttonsResponseMessage?.selectedDisplayText ||
+    message?.buttonsResponseMessage?.selectedButtonId ||
+    message?.listResponseMessage?.title ||
+    message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    message?.templateButtonReplyMessage?.selectedDisplayText ||
+    message?.templateButtonReplyMessage?.selectedId ||
     data?.text ||
-    data?.messageText;
+    data?.messageText ||
+    data?.buttonText ||
+    data?.selectedButtonId ||
+    data?.selectedRowId;
 
   return {
     instanceName: payload?.instance || data?.instance || data?.instanceName,
@@ -1171,6 +1182,7 @@ async function handleMonitorGroupCommand(event) {
   const settings = await getAppSetting("monitor_group", {});
   if (!settings?.enabled || settings.groupJid !== event.remoteJid) return false;
 
+  if (await handleResellerMenuConversation(event)) return true;
   if (await handleReminderConversation(event, settings)) return true;
 
   const command = normalizeMonitorCommand(event.text);
@@ -1200,6 +1212,8 @@ async function handleMonitorGroupCommand(event) {
     const message = await buildTdsRankMessage(command.date);
     await sendWhatsAppText(event.instanceName, event.remoteJid, message);
     await saveOutboundMessage(event, message);
+  } else if (command.type === "reseller-menu-start") {
+    await startResellerMenu(event);
   } else if (command.type === "reminder-start") {
     const message = "Qual lembrete voce quer salvar?";
     await saveReminderState(event, { step: "awaiting_body" });
@@ -1221,6 +1235,10 @@ function normalizeMonitorCommand(text) {
   }
 
   if (["MENU", "COMANDOS", "AJUDA", "HELP", "OPCOES", "OPCOES DO BOT"].includes(normalized)) return "menu";
+
+  if (["REVENDA", "REVENDAS", "MENU REVENDA", "MENU REVENDAS"].includes(normalized)) {
+    return { type: "reseller-menu-start" };
+  }
 
   if (["GRAVAR", "LEMBRETE", "CRIAR LEMBRETE", "SALVAR LEMBRETE", "NOVO LEMBRETE"].includes(normalized)) {
     return { type: "reminder-start" };
@@ -1298,6 +1316,9 @@ function buildMonitorMenuMessage() {
     "rank revendas ontem",
     "Mostra o ranking do dia anterior.",
     "",
+    "revenda",
+    "Abre o menu guiado para adicionar ou remover creditos de uma revenda.",
+    "",
     "gravar",
     "Cria um lembrete no grupo. O bot pergunta o texto e depois o tempo.",
   ].join("\n");
@@ -1311,10 +1332,217 @@ function isGeneratedMonitorMessage(text) {
     /^Status ADS\s+-/i.test(value) ||
     /^Creditos TDS\b/i.test(value) ||
     /^Credito TDS concluido\b/i.test(value) ||
+    /^Remocao de creditos concluida\b/i.test(value) ||
+    /^Menu de revendas\b/i.test(value) ||
+    /^Menu de revendas cancelado\b/i.test(value) ||
+    /^Revenda selecionada\b/i.test(value) ||
+    /^Nao entendi qual revenda\b/i.test(value) ||
+    /^Responda 1 para adicionar/i.test(value) ||
+    /^Escolha a quantidade\b/i.test(value) ||
+    /^Falha ao (?:adicionar|remover)\b/i.test(value) ||
     /^Qual lembrete voce quer salvar\?/i.test(value) ||
     /^Daqui quanto tempo/i.test(value) ||
     /^Lembrete salvo\b/i.test(value) ||
     /^Lembrete:/i.test(value);
+}
+
+async function startResellerMenu(event) {
+  const resellers = await fetchTdsResellers();
+  if (!resellers.length) {
+    const message = "Nenhuma revenda TDS encontrada agora.";
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+    return true;
+  }
+
+  const state = {
+    step: "choose_reseller",
+    resellers: resellers.map((item) => ({
+      id: item.id,
+      username: item.username,
+      credits: item.credits,
+    })),
+  };
+  await saveResellerMenuState(event, state);
+
+  const message = buildResellerMenuMessage(state.resellers);
+  await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+  await saveOutboundMessage(event, message);
+  return true;
+}
+
+async function handleResellerMenuConversation(event) {
+  const state = await getResellerMenuState(event);
+  const text = String(event.text || "").trim();
+  const normalized = normalizeText(text);
+
+  if (!state) {
+    if (["REVENDA", "REVENDAS", "MENU REVENDA", "MENU REVENDAS"].includes(normalized)) {
+      await startResellerMenu(event);
+      return true;
+    }
+    return false;
+  }
+
+  if (["CANCELAR", "CANCELA", "PARAR", "SAIR"].includes(normalized)) {
+    await clearResellerMenuState(event);
+    const message = "Menu de revendas cancelado.";
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+    return true;
+  }
+
+  if (["REVENDA", "REVENDAS", "MENU REVENDA", "MENU REVENDAS"].includes(normalized)) {
+    await startResellerMenu(event);
+    return true;
+  }
+
+  if (state.step === "choose_reseller") {
+    const reseller = pickResellerFromMenu(state.resellers || [], text);
+    if (!reseller) {
+      const message = [
+        "Nao entendi qual revenda.",
+        "Responda com o numero da lista ou com parte do usuario.",
+        "",
+        buildResellerMenuMessage(state.resellers || []),
+      ].join("\n");
+      await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+      await saveOutboundMessage(event, message);
+      return true;
+    }
+
+    await saveResellerMenuState(event, {
+      ...state,
+      step: "choose_action",
+      reseller,
+    });
+
+    const message = [
+      `Revenda selecionada: ${reseller.username}`,
+      `Saldo atual: ${formatDecimal(reseller.credits)}`,
+      "",
+      "O que voce quer fazer?",
+      "1 - Adicionar creditos",
+      "2 - Remover creditos",
+      "",
+      "Responda 1 ou 2. Para cancelar, mande cancelar.",
+    ].join("\n");
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+    return true;
+  }
+
+  if (state.step === "choose_action") {
+    const action = parseResellerMenuAction(text);
+    if (!action) {
+      const message = "Responda 1 para adicionar ou 2 para remover. Para cancelar, mande cancelar.";
+      await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+      await saveOutboundMessage(event, message);
+      return true;
+    }
+
+    await saveResellerMenuState(event, {
+      ...state,
+      step: "choose_amount",
+      action,
+    });
+
+    const message = [
+      "Escolha a quantidade:",
+      RESELLER_MENU_AMOUNTS.join(" | "),
+      "",
+      "Responda com 5, 10, 15 ou 20.",
+    ].join("\n");
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+    return true;
+  }
+
+  if (state.step === "choose_amount") {
+    const amount = parseResellerMenuAmount(text);
+    if (!amount) {
+      const message = `Escolha uma quantidade valida: ${RESELLER_MENU_AMOUNTS.join(", ")}.`;
+      await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+      await saveOutboundMessage(event, message);
+      return true;
+    }
+
+    const message = await adjustTdsResellerCreditsById(state.reseller, amount, state.action);
+    await clearResellerMenuState(event);
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
+    return true;
+  }
+
+  await clearResellerMenuState(event);
+  return false;
+}
+
+function buildResellerMenuMessage(resellers) {
+  const items = (resellers || []).slice(0, 60);
+  const lines = [
+    "Menu de revendas",
+    "",
+    "Escolha a revenda respondendo o numero:",
+    "",
+    ...items.map((item, index) => `${index + 1}. ${item.username} - ${formatDecimal(item.credits)} creditos`),
+  ];
+
+  if ((resellers || []).length > items.length) {
+    lines.push("", `Mostrando ${items.length}/${resellers.length}. Voce tambem pode responder com parte do usuario.`);
+  }
+
+  lines.push("", "Para cancelar, mande cancelar.");
+  return lines.join("\n");
+}
+
+function pickResellerFromMenu(resellers, text) {
+  const value = String(text || "").trim();
+  const index = Number(value);
+  if (Number.isInteger(index) && index >= 1 && index <= resellers.length) {
+    return resellers[index - 1];
+  }
+
+  const filter = normalizeMonitorUsername(value);
+  if (!filter) return null;
+  const matches = resellers.filter((item) => item.username.toLowerCase().includes(filter));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function parseResellerMenuAction(text) {
+  const normalized = normalizeText(text);
+  if (["1", "ADICIONAR", "ADICIONAR CREDITOS", "ADD", "SOMAR", "COLOCAR"].includes(normalized)) return "add";
+  if (["2", "REMOVER", "REMOVER CREDITOS", "TIRAR", "RETIRAR", "SUBTRAIR"].includes(normalized)) return "remove";
+  return "";
+}
+
+function parseResellerMenuAmount(text) {
+  const amount = parseMoney(text);
+  return RESELLER_MENU_AMOUNTS.includes(amount) ? amount : 0;
+}
+
+function resellerMenuStateKey(event) {
+  const actor = event.senderJid || event.senderName || "sem-remetente";
+  return `reseller-menu-state:${event.remoteJid}:${actor}`;
+}
+
+async function getResellerMenuState(event) {
+  const value = await redis.get(resellerMenuStateKey(event));
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    await clearResellerMenuState(event);
+    return null;
+  }
+}
+
+async function saveResellerMenuState(event, state) {
+  await redis.set(resellerMenuStateKey(event), JSON.stringify(state), "EX", RESELLER_MENU_TTL_SECONDS);
+}
+
+async function clearResellerMenuState(event) {
+  await redis.del(resellerMenuStateKey(event));
 }
 
 async function handleReminderConversation(event, settings) {
@@ -1616,6 +1844,30 @@ async function transferCreditsToTdsReseller(username, amount) {
   } catch (error) {
     console.error("tds single credit transfer failed", reseller.username, error);
     return `Falha ao creditar ${reseller.username}: ${String(error.message || error).slice(0, 140)}`;
+  }
+}
+
+async function adjustTdsResellerCreditsById(reseller, amount, action) {
+  if (!reseller?.id) return "Revenda invalida. Chame o menu de revenda novamente.";
+  if (!Number.isFinite(amount) || amount <= 0) return "Nao consegui entender a quantidade de creditos.";
+  if (!RESELLER_MENU_AMOUNTS.includes(amount)) {
+    return `Pelo menu, use apenas: ${RESELLER_MENU_AMOUNTS.join(", ")}.`;
+  }
+
+  const signedAmount = action === "remove" ? -amount : amount;
+  const verb = action === "remove" ? "remover" : "adicionar";
+  try {
+    await transferTheBestCredits(reseller.id, signedAmount);
+    const updated = await findTdsResellerById(reseller.id);
+    return [
+      action === "remove" ? "Remocao de creditos concluida" : "Credito TDS concluido",
+      `Revenda: ${updated?.username || reseller.username}`,
+      `Acao: ${verb} ${formatDecimal(amount)}`,
+      `Saldo atual: ${formatDecimal(updated?.credits ?? reseller.credits)}`,
+    ].join("\n");
+  } catch (error) {
+    console.error("tds menu credit adjustment failed", reseller.username, action, amount, error);
+    return `Falha ao ${verb} ${formatDecimal(amount)} em ${reseller.username}: ${String(error.message || error).slice(0, 140)}`;
   }
 }
 
