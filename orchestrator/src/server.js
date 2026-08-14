@@ -797,7 +797,7 @@ app.post(["/webhooks/evolution", "/webhooks/evolution/:event"], rateLimit({ wind
 
   try {
     let event = normalizeEvolutionMessage(req.body);
-    if (!event?.text && event?.audio && !event.fromMe) {
+    if (!event?.text && event?.audio) {
       event = await attachAudioTranscription(event);
     }
     if (!event?.text) return;
@@ -1076,7 +1076,8 @@ async function attachAudioTranscription(event) {
 
     return {
       ...event,
-      text: `[audio transcrito] ${transcription}`,
+      text: transcription,
+      audioTranscription: transcription,
     };
   } catch (error) {
     console.error("audio transcription failed", error);
@@ -1253,6 +1254,9 @@ function parseMainMonitorMenuOption(text) {
 
 function normalizeMonitorCommand(text) {
   const normalized = normalizeText(text);
+  const spoken = normalizeSpokenMonitorCommand(text);
+  if (spoken) return spoken;
+
   const rankMatch = String(text || "").trim().match(/^(?:rank|ranking)\s+(?:revendas|tds)(?:\s+(hoje|ontem|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?))?$/i);
   if (rankMatch) {
     return {
@@ -1317,6 +1321,38 @@ function normalizeMonitorCommand(text) {
     return {
       type: "tds-credit-status",
       username: creditStatusMatch[1].toLowerCase(),
+    };
+  }
+
+  return null;
+}
+
+function normalizeSpokenMonitorCommand(text) {
+  const normalized = normalizeText(text);
+  if (!normalized) return null;
+
+  if (/^(ABRE|ABRIR|MOSTRA|MOSTRAR|MANDA|MANDAR)\s+(O\s+)?MENU\b/.test(normalized)) return "menu";
+  if (/^(MANDA|MANDAR|MOSTRA|MOSTRAR|POSTA|POSTAR|VER)\s+(O\s+)?STATUS\b/.test(normalized)) return "status";
+  if (/^(CONSULTA|CONSULTAR|BUSCA|BUSCAR|VER)\s+(OS\s+)?CREDITOS\b/.test(normalized)) return { type: "tds-credit-status", username: "" };
+  if (/^(ABRE|ABRIR|MOSTRA|MOSTRAR)\s+(O\s+)?MENU\s+(DE\s+)?REVENDAS?\b/.test(normalized)) return { type: "reseller-menu-start" };
+
+  const customerMatch = normalized.match(/^(?:CONSULTA|CONSULTAR|BUSCA|BUSCAR|VER)\s+(?:O\s+)?CLIENTE\s+(.+)$/);
+  if (customerMatch) return { type: "customer-lookup", query: customerMatch[1].trim().toLowerCase() };
+
+  const allCreditMatch = normalized.match(/^(?:COLOCA|COLOCAR|ADICIONA|ADICIONAR|BOTA|BOTAR|POE|POR|MANDA|MANDAR)\s+(\d+(?:[.,]\d+)?)\s+CREDITOS?\s+(?:PARA\s+)?(?:TODOS|TODAS|TDS)$/);
+  if (allCreditMatch) {
+    return {
+      type: "tds-credit-all",
+      amount: parseMoney(allCreditMatch[1]),
+    };
+  }
+
+  const addCreditMatch = normalized.match(/^(?:COLOCA|COLOCAR|ADICIONA|ADICIONAR|BOTA|BOTAR|POE|POR|MANDA|MANDAR)\s+(\d+(?:[.,]\d+)?)\s+CREDITOS?\s+(?:NA|NO|PARA|PRA|PRO|EM)?\s*(.+)$/);
+  if (addCreditMatch) {
+    return {
+      type: "tds-credit-one",
+      amount: parseMoney(addCreditMatch[1]),
+      username: normalizeMonitorUsername(addCreditMatch[2]),
     };
   }
 
