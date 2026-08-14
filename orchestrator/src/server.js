@@ -49,6 +49,7 @@ const MONITOR_FOLLOWUP_MESSAGE = [
   "1 - Sim",
   "2 - Nao",
 ].join("\n");
+const AUDIO_MONITOR_GROUP_NAME = "DEVERES";
 const ADMIN_COOKIE_NAME = "mega_admin";
 const MAX_ADS_IMPORT_BYTES = 12 * 1024 * 1024;
 const MAX_ADS_IMPORT_ROWS = 5000;
@@ -797,10 +798,11 @@ app.post(["/webhooks/evolution", "/webhooks/evolution/:event"], rateLimit({ wind
 
   try {
     let event = normalizeEvolutionMessage(req.body);
-    if (!event?.text && event?.audio) {
+    const shouldTranscribeAudio = !event?.text && event?.audio && await shouldTranscribeMonitorAudio(event);
+    if (shouldTranscribeAudio) {
       event = await attachAudioTranscription(event);
     }
-    if (!event?.text && event?.audio) {
+    if (!event?.text && event?.audio && shouldTranscribeAudio) {
       const message = buildAudioTranscriptionFailureMessage(event.audioTranscriptionError);
       await sendWhatsAppText(event.instanceName, event.remoteJid, message);
       await saveOutboundMessage(event, message);
@@ -1102,6 +1104,15 @@ function buildAudioTranscriptionFailureMessage(reason) {
     return "Recebi o audio, mas a conexao com a transcricao falhou. Tenta mandar de novo em alguns segundos.";
   }
   return "Recebi o audio, mas nao consegui transcrever agora. Tenta mandar de novo ou escreve o comando.";
+}
+
+async function shouldTranscribeMonitorAudio(event) {
+  if (!event?.remoteJid?.endsWith("@g.us")) return false;
+  const settings = await getAppSetting("monitor_group", {});
+  if (!settings?.enabled || settings.groupJid !== event.remoteJid) return false;
+
+  const groupName = normalizeText(settings.groupName || settings.name || "");
+  return !groupName || groupName.includes(AUDIO_MONITOR_GROUP_NAME);
 }
 
 function classifyOpenAiError(error) {
