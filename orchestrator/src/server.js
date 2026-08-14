@@ -800,6 +800,12 @@ app.post(["/webhooks/evolution", "/webhooks/evolution/:event"], rateLimit({ wind
     if (!event?.text && event?.audio) {
       event = await attachAudioTranscription(event);
     }
+    if (!event?.text && event?.audio) {
+      const message = buildAudioTranscriptionFailureMessage(event.audioTranscriptionError);
+      await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+      await saveOutboundMessage(event, message);
+      return;
+    }
     if (!event?.text) return;
 
     if (event.fromMe) {
@@ -1081,8 +1087,34 @@ async function attachAudioTranscription(event) {
     };
   } catch (error) {
     console.error("audio transcription failed", error);
-    return event;
+    return {
+      ...event,
+      audioTranscriptionError: classifyOpenAiError(error),
+    };
   }
+}
+
+function buildAudioTranscriptionFailureMessage(reason) {
+  if (reason === "insufficient_quota") {
+    return "Recebi o audio, mas a transcricao esta sem saldo/cota na OpenAI. Precisa ajustar billing/limite da API para eu ouvir audio.";
+  }
+  if (reason === "connection_error") {
+    return "Recebi o audio, mas a conexao com a transcricao falhou. Tenta mandar de novo em alguns segundos.";
+  }
+  return "Recebi o audio, mas nao consegui transcrever agora. Tenta mandar de novo ou escreve o comando.";
+}
+
+function classifyOpenAiError(error) {
+  const code = String(error?.code || error?.error?.code || "");
+  const type = String(error?.type || error?.error?.type || "");
+  const message = String(error?.message || error?.error?.message || "");
+  if (code === "insufficient_quota" || type === "insufficient_quota" || /quota|credits|billing/i.test(message)) {
+    return "insufficient_quota";
+  }
+  if (error?.cause?.code === "ECONNRESET" || /ECONNRESET|connection error|timeout/i.test(message)) {
+    return "connection_error";
+  }
+  return "unknown";
 }
 
 async function resolveAudioMedia(event) {
