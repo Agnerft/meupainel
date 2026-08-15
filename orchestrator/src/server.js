@@ -1352,7 +1352,9 @@ async function handleMonitorGroupCommand(event) {
     await sendWhatsAppText(event.instanceName, event.remoteJid, message);
     await saveOutboundMessage(event, message);
   } else if (command.type === "tds-credit-one") {
-    const message = await transferCreditsToTdsReseller(command.username, command.amount);
+    const message = Number.isInteger(command.resellerIndex)
+      ? await transferCreditsToTdsResellerByIndex(command.resellerIndex, command.amount)
+      : await transferCreditsToTdsReseller(command.username, command.amount);
     await sendWhatsAppText(event.instanceName, event.remoteJid, message);
     await saveOutboundMessage(event, message);
   } else if (command.type === "tds-credit-status") {
@@ -1444,10 +1446,11 @@ function normalizeMonitorCommand(text) {
 
   const creditOneMatch = normalized.match(/^CREDITOS?\s+(\d+(?:[.,]\d+)?)\s+(?:PARA\s+|PRA\s+|PRO\s+|NO\s+|NA\s+)?(.+)$/);
   if (creditOneMatch) {
+    const resellerIndex = parseResellerIndexReference(creditOneMatch[2]);
     return {
       type: "tds-credit-one",
       amount: parseMoney(creditOneMatch[1]),
-      username: normalizeMonitorUsername(creditOneMatch[2]),
+      ...(resellerIndex ? { resellerIndex } : { username: normalizeMonitorUsername(creditOneMatch[2]) }),
     };
   }
 
@@ -1492,14 +1495,37 @@ function normalizeSpokenMonitorCommand(text) {
 
   const addCreditMatch = normalized.match(/^(?:COLOCA|COLOCAR|ADICIONA|ADICIONAR|BOTA|BOTAR|POE|POR|MANDA|MANDAR)\s+(\d+(?:[.,]\d+)?)\s+CREDITOS?\s+(?:NA|NO|PARA|PRA|PRO|EM)?\s*(.+)$/);
   if (addCreditMatch) {
+    const resellerIndex = parseResellerIndexReference(addCreditMatch[2]);
     return {
       type: "tds-credit-one",
       amount: parseMoney(addCreditMatch[1]),
-      username: normalizeMonitorUsername(addCreditMatch[2]),
+      ...(resellerIndex ? { resellerIndex } : { username: normalizeMonitorUsername(addCreditMatch[2]) }),
     };
   }
 
   return null;
+}
+
+function parseResellerIndexReference(value) {
+  const normalized = normalizeText(value);
+  const match = normalized.match(/^(?:A\s+|O\s+)?(?:REVENDA\s+)?(?:NUMERO\s+)?(\d{1,3}|UM|UMA|DOIS|DUAS|TRES|QUATRO|CINCO|SEIS|SETE|OITO|NOVE|DEZ)$/);
+  if (!match) return null;
+  const wordNumbers = {
+    UM: 1,
+    UMA: 1,
+    DOIS: 2,
+    DUAS: 2,
+    TRES: 3,
+    QUATRO: 4,
+    CINCO: 5,
+    SEIS: 6,
+    SETE: 7,
+    OITO: 8,
+    NOVE: 9,
+    DEZ: 10,
+  };
+  const index = wordNumbers[match[1]] || Number(match[1]);
+  return Number.isInteger(index) && index > 0 ? index : null;
 }
 
 function normalizeMonitorUsername(value) {
@@ -2144,6 +2170,35 @@ async function transferCreditsToTdsReseller(username, amount) {
   }
 }
 
+async function transferCreditsToTdsResellerByIndex(index, amount) {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return "Nao consegui entender a quantidade de creditos.";
+  }
+  if (amount > 50) {
+    return "Por seguranca, o limite pelo grupo e 50 creditos por revenda.";
+  }
+
+  const resellers = await fetchTdsResellers();
+  const reseller = resellers[index - 1];
+  if (!reseller) {
+    return `Nao encontrei a revenda ${index}. Mande "creditos" para ver a lista numerada.`;
+  }
+
+  try {
+    await transferTheBestCredits(reseller.id, amount);
+    const updated = await findTdsResellerById(reseller.id);
+    return [
+      "Credito TDS concluido",
+      `Revenda ${index}: ${updated?.username || reseller.username}`,
+      `Valor: ${formatDecimal(amount)}`,
+      `Saldo atual: ${formatDecimal(updated?.credits ?? reseller.credits)}`,
+    ].join("\n");
+  } catch (error) {
+    console.error("tds indexed credit transfer failed", reseller.username, index, error);
+    return `Falha ao creditar revenda ${index} (${reseller.username}): ${String(error.message || error).slice(0, 140)}`;
+  }
+}
+
 async function adjustTdsResellerCreditsById(reseller, amount, action) {
   if (!reseller?.id) return "Revenda invalida. Chame o menu de revenda novamente.";
   if (!Number.isFinite(amount) || amount <= 0) return "Nao consegui entender a quantidade de creditos.";
@@ -2171,9 +2226,9 @@ async function adjustTdsResellerCreditsById(reseller, amount, action) {
 async function buildTdsCreditsStatusMessage(username = "") {
   const resellers = await fetchTdsResellers();
   const filter = String(username || "").toLowerCase().trim();
-  const items = filter
-    ? resellers.filter((reseller) => reseller.username.toLowerCase().includes(filter))
-    : resellers;
+  const items = resellers
+    .map((reseller, index) => ({ ...reseller, listIndex: index + 1 }))
+    .filter((reseller) => !filter || reseller.username.toLowerCase().includes(filter));
 
   if (!items.length) {
     return filter
@@ -2185,7 +2240,7 @@ async function buildTdsCreditsStatusMessage(username = "") {
     const item = items[0];
     return [
       `Creditos TDS`,
-      `${item.username}: ${formatDecimal(item.credits)}`,
+      `${item.listIndex}. ${item.username} - ${formatDecimal(item.credits)} creditos`,
     ].join("\n");
   }
 
@@ -2195,7 +2250,9 @@ async function buildTdsCreditsStatusMessage(username = "") {
     `Revendas: ${items.length}`,
     `Total: ${formatDecimal(total)}`,
     "",
-    ...items.map((item) => `${item.username}: ${formatDecimal(item.credits)}`),
+    ...items.map((item) => `${item.listIndex}. ${item.username} - ${formatDecimal(item.credits)} creditos`),
+    "",
+    `Audio: "coloca 15 creditos na revenda 1"`,
   ];
   return lines.join("\n");
 }
