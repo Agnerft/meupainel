@@ -1337,7 +1337,7 @@ async function handleMonitorGroupCommand(event) {
 
   const mainMenuOption = parseMainMonitorMenuOption(event.text);
   const command = normalizeMonitorCommand(event.text);
-  if (!command) return true;
+  if (!command) return !(event.fromMe && event.audioTranscription);
 
   if (command === "menu") {
     const message = buildMonitorMenuMessage();
@@ -1485,20 +1485,20 @@ function normalizeSpokenMonitorCommand(text) {
   const customerMatch = normalized.match(/^(?:CONSULTA|CONSULTAR|BUSCA|BUSCAR|VER)\s+(?:O\s+)?CLIENTE\s+(.+)$/);
   if (customerMatch) return { type: "customer-lookup", query: customerMatch[1].trim().toLowerCase() };
 
-  const allCreditMatch = normalized.match(/^(?:COLOCA|COLOCAR|ADICIONA|ADICIONAR|BOTA|BOTAR|POE|POR|MANDA|MANDAR)\s+(\d+(?:[.,]\d+)?)\s+CREDITOS?\s+(?:PARA\s+)?(?:TODOS|TODAS|TDS)$/);
+  const allCreditMatch = normalized.match(/^(?:COLOCA|COLOCAR|ADICIONA|ADICIONAR|BOTA|BOTAR|POE|POR|MANDA|MANDAR)\s+([\d.,]+|[A-Z]+)\s+CREDITOS?\s+(?:PARA\s+)?(?:TODOS|TODAS|TDS)$/);
   if (allCreditMatch) {
     return {
       type: "tds-credit-all",
-      amount: parseMoney(allCreditMatch[1]),
+      amount: parseCreditAmount(allCreditMatch[1]),
     };
   }
 
-  const addCreditMatch = normalized.match(/^(?:COLOCA|COLOCAR|ADICIONA|ADICIONAR|BOTA|BOTAR|POE|POR|MANDA|MANDAR)\s+(\d+(?:[.,]\d+)?)\s+CREDITOS?\s+(?:NA|NO|PARA|PRA|PRO|EM)?\s*(.+)$/);
+  const addCreditMatch = normalized.match(/^(?:COLOCA|COLOCAR|ADICIONA|ADICIONAR|BOTA|BOTAR|POE|POR|MANDA|MANDAR)\s+([\d.,]+|[A-Z]+)\s+CREDITOS?\s+(?:NA|NO|PARA|PRA|PRO|EM)?\s*(.+)$/);
   if (addCreditMatch) {
     const resellerIndex = parseResellerIndexReference(addCreditMatch[2]);
     return {
       type: "tds-credit-one",
-      amount: parseMoney(addCreditMatch[1]),
+      amount: parseCreditAmount(addCreditMatch[1]),
       ...(resellerIndex ? { resellerIndex } : { username: normalizeMonitorUsername(addCreditMatch[2]) }),
     };
   }
@@ -1510,6 +1510,12 @@ function parseResellerIndexReference(value) {
   const normalized = normalizeText(value);
   const match = normalized.match(/^(?:A\s+|O\s+)?(?:REVENDA\s+)?(?:NUMERO\s+)?(\d{1,3}|UM|UMA|DOIS|DUAS|TRES|QUATRO|CINCO|SEIS|SETE|OITO|NOVE|DEZ)$/);
   if (!match) return null;
+  const index = parseCreditAmount(match[1]);
+  return Number.isInteger(index) && index > 0 ? index : null;
+}
+
+function parseCreditAmount(value) {
+  const normalized = normalizeText(value);
   const wordNumbers = {
     UM: 1,
     UMA: 1,
@@ -1523,9 +1529,25 @@ function parseResellerIndexReference(value) {
     OITO: 8,
     NOVE: 9,
     DEZ: 10,
+    ONZE: 11,
+    DOZE: 12,
+    TREZE: 13,
+    QUATORZE: 14,
+    CATORZE: 14,
+    QUINZE: 15,
+    DEZESSEIS: 16,
+    DEZASSEIS: 16,
+    DEZESSETE: 17,
+    DEZASSETE: 17,
+    DEZOITO: 18,
+    DEZENOVE: 19,
+    DEZANOVE: 19,
+    VINTE: 20,
+    TRINTA: 30,
+    QUARENTA: 40,
+    CINQUENTA: 50,
   };
-  const index = wordNumbers[match[1]] || Number(match[1]);
-  return Number.isInteger(index) && index > 0 ? index : null;
+  return wordNumbers[normalized] || parseMoney(value);
 }
 
 function normalizeMonitorUsername(value) {
