@@ -1473,6 +1473,10 @@ function normalizeSpokenMonitorCommand(text) {
   if (/^(ABRE|ABRIR|MOSTRA|MOSTRAR|MANDA|MANDAR)\s+(O\s+)?MENU\b/.test(normalized)) return "menu";
   if (/^(MANDA|MANDAR|MOSTRA|MOSTRAR|POSTA|POSTAR|VER)\s+(O\s+)?STATUS\b/.test(normalized)) return "status";
   if (/^(CONSULTA|CONSULTAR|BUSCA|BUSCAR|VER)\s+(OS\s+)?CREDITOS\b/.test(normalized)) return { type: "tds-credit-status", username: "" };
+  if (/^(QUANTOS?|QUANTAS?)\s+CREDITOS?\b/.test(normalized)) return { type: "tds-credit-status", username: "" };
+  if (/\bCREDITOS?\b/.test(normalized) && /\bREVENDAS?\b/.test(normalized) && /\b(TEM|TEMOS|SALDO|SALDOS|CONSULTA|CONSULTAR|VER|MOSTRA|MOSTRAR)\b/.test(normalized)) {
+    return { type: "tds-credit-status", username: "" };
+  }
   if (/^(ABRE|ABRIR|MOSTRA|MOSTRAR)\s+(O\s+)?MENU\s+(DE\s+)?REVENDAS?\b/.test(normalized)) return { type: "reseller-menu-start" };
 
   const customerMatch = normalized.match(/^(?:CONSULTA|CONSULTAR|BUSCA|BUSCAR|VER)\s+(?:O\s+)?CLIENTE\s+(.+)$/);
