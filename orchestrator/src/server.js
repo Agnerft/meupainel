@@ -1178,8 +1178,9 @@ async function fetchEvolutionMediaBase64(instanceName, messageKey) {
 }
 
 async function transcribeAudio(media) {
-  const file = new File([media.buffer], media.fileName || buildAudioFileName(null, media.mimetype), {
-    type: media.mimetype || "audio/ogg",
+  const mimetype = normalizeAudioMimeType(media.mimetype);
+  const file = new File([media.buffer], normalizeAudioFileName(media.fileName, mimetype), {
+    type: mimetype,
   });
   const response = await openai.audio.transcriptions.create({
     model: config.audioTranscriptionModel,
@@ -1188,6 +1189,23 @@ async function transcribeAudio(media) {
   });
 
   return String(response?.text || "").trim();
+}
+
+function normalizeAudioMimeType(mimetype = "") {
+  const value = String(mimetype || "").toLowerCase();
+  if (value.includes("ogg") || value.includes("opus") || value.includes("oga")) return "audio/ogg";
+  if (value.includes("mpeg") || value.includes("mp3")) return "audio/mpeg";
+  if (value.includes("mp4")) return "audio/mp4";
+  if (value.includes("wav")) return "audio/wav";
+  if (value.includes("webm")) return "audio/webm";
+  return "audio/ogg";
+}
+
+function normalizeAudioFileName(fileName, mimetype = "audio/ogg") {
+  const extension = audioExtensionFromMime(mimetype);
+  const baseName = String(fileName || "").trim();
+  if (!baseName) return buildAudioFileName(null, mimetype);
+  return baseName.replace(/\.[a-z0-9]+$/i, `.${extension}`);
 }
 
 function normalizeBase64(value) {
