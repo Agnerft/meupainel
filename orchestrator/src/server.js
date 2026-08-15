@@ -813,7 +813,12 @@ app.post(["/webhooks/evolution", "/webhooks/evolution/:event"], rateLimit({ wind
     if (!event?.text) return;
 
     if (event.fromMe) {
-      await handleMonitorGroupCommand(event);
+      const handled = await handleMonitorGroupCommand(event);
+      if (!handled && event.audioTranscription) {
+        const message = buildUnrecognizedAudioCommandMessage(event.audioTranscription);
+        await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+        await saveOutboundMessage(event, message);
+      }
       return;
     }
 
@@ -1106,6 +1111,19 @@ function buildAudioTranscriptionFailureMessage(reason) {
     return "Recebi o audio, mas a conexao com a transcricao falhou. Tenta mandar de novo em alguns segundos.";
   }
   return "Recebi o audio, mas nao consegui transcrever agora. Tenta mandar de novo ou escreve o comando.";
+}
+
+function buildUnrecognizedAudioCommandMessage(transcription) {
+  return [
+    `Ouvi: "${String(transcription || "").slice(0, 180)}"`,
+    "",
+    "Nao reconheci como comando. Tenta falar assim:",
+    "menu",
+    "status",
+    "creditos",
+    "cliente 51999999999",
+    "coloca 15 creditos na revenda 3",
+  ].join("\n");
 }
 
 async function shouldTranscribeMonitorAudio(event) {
