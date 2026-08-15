@@ -1083,11 +1083,38 @@ function extractAudioMessage(data, message) {
 
 async function attachAudioTranscription(event) {
   try {
+    console.info("audio transcription started", {
+      remoteJid: event.remoteJid,
+      fromMe: event.fromMe,
+      messageId: event.messageId,
+      hasInlineBase64: Boolean(normalizeBase64(event.audio?.base64)),
+    });
     const media = await resolveAudioMedia(event);
-    if (!media?.buffer?.length) return event;
+    if (!media?.buffer?.length) {
+      console.warn("audio media unavailable", {
+        remoteJid: event.remoteJid,
+        fromMe: event.fromMe,
+        messageId: event.messageId,
+      });
+      return {
+        ...event,
+        audioTranscriptionError: "media_unavailable",
+      };
+    }
 
     const transcription = await transcribeAudio(media);
-    if (!transcription) return event;
+    console.info("audio transcription finished", {
+      remoteJid: event.remoteJid,
+      fromMe: event.fromMe,
+      messageId: event.messageId,
+      textLength: transcription.length,
+    });
+    if (!transcription) {
+      return {
+        ...event,
+        audioTranscriptionError: "empty_transcription",
+      };
+    }
 
     return {
       ...event,
@@ -1109,6 +1136,12 @@ function buildAudioTranscriptionFailureMessage(reason) {
   }
   if (reason === "connection_error") {
     return "Recebi o audio, mas a conexao com a transcricao falhou. Tenta mandar de novo em alguns segundos.";
+  }
+  if (reason === "media_unavailable") {
+    return "Recebi o audio, mas nao consegui baixar o arquivo do WhatsApp agora. Tenta mandar de novo.";
+  }
+  if (reason === "empty_transcription") {
+    return "Recebi o audio, mas nao consegui entender nenhuma fala. Tenta mandar de novo falando mais perto.";
   }
   return "Recebi o audio, mas nao consegui transcrever agora. Tenta mandar de novo ou escreve o comando.";
 }
@@ -1146,6 +1179,9 @@ function classifyOpenAiError(error) {
   if (code === "insufficient_quota" || type === "insufficient_quota" || /quota|credits|billing/i.test(message)) {
     return "insufficient_quota";
   }
+  if (/getBase64FromMediaMessage|media|timed out/i.test(message)) {
+    return "media_unavailable";
+  }
   if (error?.cause?.code === "ECONNRESET" || /ECONNRESET|connection error|timeout/i.test(message)) {
     return "connection_error";
   }
@@ -1181,7 +1217,7 @@ async function fetchEvolutionMediaBase64(instanceName, messageKey) {
   };
   if (!instanceName || !key.id) return null;
 
-  const response = await fetch(`${config.evolutionBaseUrl}/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`, {
+  const response = await fetchWithTimeout(`${config.evolutionBaseUrl}/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -1191,7 +1227,7 @@ async function fetchEvolutionMediaBase64(instanceName, messageKey) {
       message: { key },
       convertToMp4: false,
     }),
-  });
+  }, 15000);
 
   if (!response.ok) {
     const body = await response.text();
@@ -1199,6 +1235,24 @@ async function fetchEvolutionMediaBase64(instanceName, messageKey) {
   }
 
   return response.json();
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function transcribeAudio(media) {
