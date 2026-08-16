@@ -2818,9 +2818,13 @@ async function parseAdsWorkbook(buffer, options = {}) {
   const conversationsKey = findHeader(headers, [
     "conversas por mensagem iniciadas",
     "conversas iniciadas",
+    "novos contatos de mensagem",
+    "total de contatos por mensagem",
     "messaging conversations started",
     "messaging conversations started 7 day click",
     "conversations started",
+    "new messaging contacts",
+    "total messaging contacts",
   ]);
   const budgetKey = findHeader(headers, [
     "orcamento do conjunto de anuncios",
