@@ -526,7 +526,8 @@ async function loadAdsFile() {
       const quote = data.exchangeRate
         ? ` | USD-BRL ${Number(data.exchangeRate).toLocaleString("pt-BR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
         : "";
-      adsStatus.textContent = `${data.entries || 0} lancamento(s) importado(s)${quote}`;
+      const conversationsColumn = data.conversationsColumn ? ` | Conversas: ${data.conversationsColumn}` : "";
+      adsStatus.textContent = `${data.entries || 0} lancamento(s) importado(s)${quote}${conversationsColumn}`;
       adsPreviewBox.textContent = data.text
         ? "Arquivo convertido. Clique em Gerar previa para conferir os grupos."
         : "Nenhum ADS com valor foi encontrado no arquivo.";
