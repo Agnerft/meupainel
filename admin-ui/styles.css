@@ -2443,7 +2443,7 @@ button:disabled::after {
 .adsBatchTableHeader,
 .adsBatchItem {
   display: grid;
-  grid-template-columns: minmax(190px, 0.95fr) minmax(300px, 1.25fr) minmax(260px, 0.9fr) minmax(128px, 0.42fr);
+  grid-template-columns: minmax(190px, 0.95fr) minmax(300px, 1.25fr) minmax(260px, 0.9fr) minmax(128px, 0.42fr) 38px;
   align-items: center;
   gap: 12px;
 }
@@ -2581,13 +2581,35 @@ button:disabled::after {
   overflow: auto;
 }
 
+.adsBatchRemove {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  display: inline-grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.055);
+  cursor: pointer;
+}
+
+.adsBatchRemove:hover {
+  color: #fff;
+  border-color: rgba(255, 99, 99, 0.55);
+  background: rgba(255, 99, 99, 0.2);
+}
+
 @media (max-width: 1180px) {
   .adsBatchTableHeader {
     display: none;
   }
 
   .adsBatchItem {
-    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.86fr);
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.86fr) 38px;
     border: 1px solid var(--line);
     border-radius: 10px;
     margin-bottom: 10px;
@@ -2601,6 +2623,12 @@ button:disabled::after {
   .adsBatchMessage {
     justify-self: start;
   }
+
+  .adsBatchRemove {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
 }
 
 @media (max-width: 720px) {
@@ -2609,10 +2637,21 @@ button:disabled::after {
   }
 
   .adsBatchItem {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) 38px;
   }
 
   .adsBatchSummary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .adsBatchGroup,
+  .adsBatchSummary,
+  .adsBatchMessage {
+    grid-column: 1 / -1;
+  }
+
+  .adsBatchRemove {
+    grid-column: 2;
+    grid-row: 1;
   }
 }

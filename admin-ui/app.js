@@ -75,6 +75,7 @@ testButton.addEventListener("click", testReply);
 adsPreviewButton.addEventListener("click", previewAds);
 adsSendButton.addEventListener("click", sendAds);
 adsFile.addEventListener("change", loadAdsFile);
+adsBatchList.addEventListener("click", removeAdsBatchItem);
 adsGroupSearchButton.addEventListener("click", loadAdsGroups);
 adsGroupFilter.addEventListener("keydown", (event) => {
   if (event.key === "Enter") loadAdsGroups();
@@ -557,17 +558,18 @@ function renderAdsPreview(data) {
     adsGroupSelect.appendChild(new Option(group.name, group.remoteJid));
   }
 
-  adsPreviewBox.textContent = entries.length > 1
-    ? `${entries.length} envios encontrados. Confira a lista abaixo.`
+  adsPreviewBox.textContent = entries.length
+    ? `${entries.length} envio(s) encontrado(s). Confira a lista abaixo.`
     : data.message || "Sem mensagem.";
 
-  if (entries.length > 1) {
+  if (entries.length) {
     adsBatchList.innerHTML = `
       <div class="adsBatchTableHeader" aria-hidden="true">
         <span>Campanha</span>
         <span>Resumo</span>
         <span>Grupo</span>
         <span>Mensagem</span>
+        <span></span>
       </div>
       ${entries.map((entry, index) => renderAdsBatchItem(entry, groups, index)).join("")}
     `;
@@ -622,8 +624,60 @@ function renderAdsBatchItem(entry, groups, index) {
         <summary>Ver mensagem</summary>
         <pre>${escapeHtml(entry.message || "")}</pre>
       </details>
+      <button class="adsBatchRemove" type="button" data-index="${index}" aria-label="Remover ${escapeHtml(parsed.label || `ADS ${index + 1}`)}" title="Remover envio">x</button>
     </article>
   `;
+}
+
+function removeAdsBatchItem(event) {
+  const button = event.target.closest(".adsBatchRemove");
+  if (!button || !adsBatchList.contains(button)) return;
+
+  const index = Number(button.dataset.index);
+  const entries = adsPreview?.entries || [];
+  const removed = entries[index];
+  if (!removed) return;
+
+  removeAdsTextBlocks(removed.rawInput || "");
+  adsPreview.entries = entries.filter((_, entryIndex) => entryIndex !== index);
+  renderAdsPreview(adsPreview);
+
+  const remaining = adsPreview.entries.length;
+  adsStatus.textContent = remaining
+    ? `${remaining} envio(s) na fila`
+    : "Nenhum envio selecionado";
+}
+
+function removeAdsTextBlocks(rawInput) {
+  const blocksToRemove = new Set(splitAdsTextEntries(rawInput).map(normalizeAdsBlock));
+  if (!blocksToRemove.size) return;
+
+  const remaining = splitAdsTextEntries(adsText.value)
+    .filter((block) => !blocksToRemove.has(normalizeAdsBlock(block)));
+
+  adsText.value = remaining.join("\n\n");
+}
+
+function splitAdsTextEntries(rawInput) {
+  const lines = String(rawInput || "").split(/\r?\n/);
+  const entries = [];
+  let current = [];
+
+  for (const line of lines) {
+    if (/^\s*ADS/i.test(line) && current.some((part) => part.trim())) {
+      entries.push(current.join("\n").trim());
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+
+  if (current.some((part) => part.trim())) entries.push(current.join("\n").trim());
+  return entries.filter((entry) => /^\s*ADS/i.test(entry));
+}
+
+function normalizeAdsBlock(value) {
+  return String(value || "").replace(/\r\n/g, "\n").trim();
 }
 
 function renderBatchMetric(label, value) {
