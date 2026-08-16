@@ -624,7 +624,7 @@ function renderAdsBatchItem(entry, groups, index) {
         <summary>Ver mensagem</summary>
         <pre>${escapeHtml(entry.message || "")}</pre>
       </details>
-      <button class="adsBatchRemove" type="button" data-index="${index}" aria-label="Remover ${escapeHtml(parsed.label || `ADS ${index + 1}`)}" title="Remover envio">x</button>
+      <button class="adsBatchRemove" type="button" data-index="${index}" aria-label="Remover ${escapeHtml(parsed.label || `ADS ${index + 1}`)}" title="Remover envio">×</button>
     </article>
   `;
 }
