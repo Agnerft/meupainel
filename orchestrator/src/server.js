@@ -29,6 +29,8 @@ const config = {
   theBestPerUserApiKeys: parseJsonEnv(process.env.THE_BEST_PER_USER_API_KEYS_JSON, {}),
   theBestTimezoneOffset: Number(process.env.THE_BEST_TIMEZONE_OFFSET || -3),
   theBestMaxPages: Number(process.env.THE_BEST_MAX_PAGES || 120),
+  tdsCreditAlertThreshold: Number(process.env.TDS_CREDIT_ALERT_THRESHOLD || 30),
+  tdsCreditAlertIntervalMs: Number(process.env.TDS_CREDIT_ALERT_INTERVAL_MS || 5 * 60 * 1000),
 };
 
 const THE_BEST_API_URL = "https://api.painel.best/user/logs/";
@@ -50,6 +52,7 @@ const MONITOR_FOLLOWUP_MESSAGE = [
   "2 - Nao",
 ].join("\n");
 const ONLY_REPLY_GROUP_NAME = "DEVERES";
+const TDS_CREDIT_ALERT_KEY_PREFIX = "tds-credit-alert";
 const ADMIN_COOKIE_NAME = "mega_admin";
 const MAX_ADS_IMPORT_BYTES = 12 * 1024 * 1024;
 const MAX_ADS_IMPORT_ROWS = 5000;
@@ -3366,6 +3369,75 @@ async function getTheBestStatsMap(date) {
   return statsObjectToMap(stats);
 }
 
+async function monitorTdsCreditThreshold() {
+  if (!config.theBestApiKey) return;
+  if (!Number.isFinite(config.tdsCreditAlertThreshold) || config.tdsCreditAlertThreshold <= 0) return;
+
+  const group = await findTdsCreditAlertGroup();
+  if (!group?.remoteJid) return;
+
+  const resellers = await fetchTdsResellers();
+  const alerts = [];
+
+  for (const reseller of resellers) {
+    const key = buildTdsCreditAlertKey(reseller);
+    if (reseller.credits <= config.tdsCreditAlertThreshold) {
+      const alreadyAlerted = await redis.exists(key);
+      if (!alreadyAlerted) alerts.push(reseller);
+    } else {
+      await redis.del(key);
+    }
+  }
+
+  if (!alerts.length) return;
+
+  const message = buildTdsCreditAlertMessage(alerts);
+  await sendWhatsAppText(config.evolutionInstanceName, group.remoteJid, message);
+  await saveOutboundMessage({
+    instanceName: config.evolutionInstanceName,
+    remoteJid: group.remoteJid,
+  }, message);
+
+  for (const reseller of alerts) {
+    await redis.set(buildTdsCreditAlertKey(reseller), JSON.stringify({
+      username: reseller.username,
+      credits: reseller.credits,
+      threshold: config.tdsCreditAlertThreshold,
+      alertedAt: new Date().toISOString(),
+    }));
+  }
+}
+
+async function findTdsCreditAlertGroup() {
+  const settings = await getAppSetting("monitor_group", {});
+  const settingName = normalizeText(settings?.groupName || settings?.name || "");
+  if (settings?.enabled && settings.groupJid && (!settingName || settingName.includes(ONLY_REPLY_GROUP_NAME))) {
+    return {
+      name: settings.groupName || settings.name || ONLY_REPLY_GROUP_NAME,
+      remoteJid: settings.groupJid,
+    };
+  }
+
+  const groups = await findEvolutionGroups("");
+  return groups.find((group) => normalizeText(group.name).includes(ONLY_REPLY_GROUP_NAME)) || null;
+}
+
+function buildTdsCreditAlertKey(reseller) {
+  return `${TDS_CREDIT_ALERT_KEY_PREFIX}:${config.tdsCreditAlertThreshold}:${reseller.id || normalizeMonitorUsername(reseller.username)}`;
+}
+
+function buildTdsCreditAlertMessage(resellers) {
+  const lines = [
+    "Alerta de creditos TDS",
+    `Limite: ${formatDecimal(config.tdsCreditAlertThreshold)} creditos`,
+    "",
+    ...resellers.map((reseller) => `${reseller.username}: ${formatDecimal(reseller.credits)} creditos`),
+    "",
+    "Use o menu de revendas ou o comando de creditos para ajustar.",
+  ];
+  return lines.join("\n");
+}
+
 async function fetchTdsResellers() {
   const data = await fetchTheBestJson("/resellers/?page=1&per_page=100");
   const results = Array.isArray(data.results) ? data.results : [];
@@ -3634,3 +3706,16 @@ const reminderTimer = setInterval(() => {
   });
 }, REMINDER_CHECK_INTERVAL_MS);
 reminderTimer.unref?.();
+
+if (Number.isFinite(config.tdsCreditAlertIntervalMs) && config.tdsCreditAlertIntervalMs > 0) {
+  const tdsCreditAlertTimer = setInterval(() => {
+    monitorTdsCreditThreshold().catch((error) => {
+      console.error("tds credit alert failed", error);
+    });
+  }, config.tdsCreditAlertIntervalMs);
+  tdsCreditAlertTimer.unref?.();
+
+  monitorTdsCreditThreshold().catch((error) => {
+    console.error("tds credit alert initial check failed", error);
+  });
+}
