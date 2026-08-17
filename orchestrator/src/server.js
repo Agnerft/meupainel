@@ -2358,6 +2358,7 @@ async function buildTdsRenewalsTodayMessage(username = config.tdsDailyRenewalRep
   return [
     `Renovações ${snapshot.username}`,
     `${formatCount(snapshot.renewedCount)}/${formatCount(snapshot.dueCount)} renovadas hoje.`,
+    `Vendas hoje: ${formatCount(snapshot.salesCount)}.`,
   ].join("\n");
 }
 
@@ -3488,6 +3489,7 @@ async function monitorTdsDailyRenewalReport(now = new Date()) {
       reportType,
       dueCount: snapshot.dueCount,
       renewedCount: snapshot.renewedCount,
+      salesCount: snapshot.salesCount,
       dueLineIds: snapshot.dueLineIds,
       sentAt: new Date().toISOString(),
     }), "EX", DAILY_REPORT_REDIS_TTL_SECONDS, "NX");
@@ -3503,32 +3505,29 @@ async function monitorTdsDailyRenewalReport(now = new Date()) {
 
 async function getTdsDailyRenewalSnapshot(username, date, baseline = null) {
   const hasBaseline = Array.isArray(baseline?.dueLineIds);
-  const [dueLines, renewalLogs] = await Promise.all([
+  const [dueLines, renewalLogs, salesLogs] = await Promise.all([
     hasBaseline ? Promise.resolve(baseline.dueLineIds.map((id) => ({ id }))) : fetchTheBestLinesDueForReseller(username, date),
     fetchTheBestRenewalLogsForReseller(username, date),
+    fetchTheBestActionLogsForReseller(username, date, "trial-conversion"),
   ]);
 
   const dueLineIds = new Set(dueLines.map(getTheBestLineId).filter(Boolean));
-  const renewedDueLineIds = new Set();
   const renewedLogLineIds = new Set();
 
   for (const log of renewalLogs) {
     const lineId = getTheBestLogLineId(log);
     if (lineId) renewedLogLineIds.add(lineId);
-    if (lineId && dueLineIds.has(lineId)) renewedDueLineIds.add(lineId);
   }
 
   const dueCount = hasBaseline ? Number(baseline.dueCount || dueLines.length) : dueLines.length;
-  const fallbackRenewedCount = Math.max(renewedLogLineIds.size, renewalLogs.length);
-  const renewedCount = dueLineIds.size
-    ? renewedDueLineIds.size
-    : dueCount > 0 ? Math.min(fallbackRenewedCount, dueCount) : fallbackRenewedCount;
+  const renewedCount = Math.max(renewedLogLineIds.size, renewalLogs.length);
 
   return {
     username,
     date,
     dueCount,
     renewedCount,
+    salesCount: salesLogs.length,
     dueLineIds: [...dueLineIds],
   };
 }
@@ -3568,11 +3567,15 @@ async function fetchTheBestLinesDueForReseller(username, date) {
 }
 
 async function fetchTheBestRenewalLogsForReseller(username, date) {
+  return fetchTheBestActionLogsForReseller(username, date, "extend");
+}
+
+async function fetchTheBestActionLogsForReseller(username, date, action) {
   const logs = [];
   const normalizedUsername = normalizeMonitorUsername(username);
 
   for (let page = 1; page <= config.theBestMaxPages; page += 1) {
-    const url = `${THE_BEST_API_URL}?action=extend&page=${page}`;
+    const url = `${THE_BEST_API_URL}?action=${encodeURIComponent(action)}&page=${page}`;
     const response = await fetch(url, {
       headers: {
         "Api-Key": config.theBestApiKey,
@@ -3622,6 +3625,7 @@ function buildTdsDailyRenewalReportMessage(reportType, snapshot) {
   return [
     `Fechamento de renovações ${snapshot.username}`,
     `Foram renovadas ${renewedText} das ${formatCount(snapshot.dueCount)} de hoje.`,
+    `Vendas hoje: ${formatCount(snapshot.salesCount)}.`,
   ].join("\n");
 }
 
