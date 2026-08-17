@@ -1374,6 +1374,10 @@ async function handleMonitorGroupCommand(event) {
     const message = await buildTdsRankMessage(command.date);
     await sendWhatsAppText(event.instanceName, event.remoteJid, message);
     await saveOutboundMessage(event, message);
+  } else if (command.type === "tds-renewals-today") {
+    const message = await buildTdsRenewalsTodayMessage(command.username);
+    await sendWhatsAppText(event.instanceName, event.remoteJid, message);
+    await saveOutboundMessage(event, message);
   } else if (command.type === "customer-lookup") {
     const message = command.query
       ? await buildCustomerLookupMessage(command.query)
@@ -1420,6 +1424,14 @@ function normalizeMonitorCommand(text) {
   if (["2", "02"].includes(normalized)) return { type: "tds-credit-status", username: "" };
   if (["3", "03"].includes(normalized)) return { type: "reseller-menu-start" };
   if (["6", "06"].includes(normalized)) return { type: "customer-lookup", query: "" };
+
+  const renewalsTodayMatch = normalized.match(/^RENOVACOES?(?:\s+(?:HOJE|HJ))?(?:\s+([A-Z0-9_]+))?$/);
+  if (renewalsTodayMatch || ["RENOVACOES HOJE", "RENOVACOES HJ", "RENOVACAO HOJE", "RENOVACAO HJ"].includes(normalized)) {
+    return {
+      type: "tds-renewals-today",
+      username: normalizeMonitorUsername(renewalsTodayMatch?.[1] || config.tdsDailyRenewalReportUsername),
+    };
+  }
 
   const customerMatch = String(text || "").trim().match(/^(?:cliente|client|consulta|buscar)\s+(.+)$/i);
   if (customerMatch) {
@@ -1484,6 +1496,13 @@ function normalizeSpokenMonitorCommand(text) {
 
   if (/^(ABRE|ABRIR|MOSTRA|MOSTRAR|MANDA|MANDAR)\s+(O\s+)?MENU\b/.test(normalized)) return "menu";
   if (/^(MANDA|MANDAR|MOSTRA|MOSTRAR|POSTA|POSTAR|VER)\s+(O\s+)?STATUS\b/.test(normalized)) return "status";
+  if (/\bRENOVACOES?\b/.test(normalized) && /\b(HOJE|HJ|AGORA)\b/.test(normalized)) {
+    const usernameMatch = normalized.match(/\b(TDS[A-Z0-9_]+)\b/);
+    return {
+      type: "tds-renewals-today",
+      username: normalizeMonitorUsername(usernameMatch?.[1] || config.tdsDailyRenewalReportUsername),
+    };
+  }
   if (/^(CONSULTA|CONSULTAR|BUSCA|BUSCAR|VER)\s+(OS\s+)?CREDITOS\b/.test(normalized)) return { type: "tds-credit-status", username: "" };
   if (/^(QUANTOS?|QUANTAS?)\s+CREDITOS?\b/.test(normalized)) return { type: "tds-credit-status", username: "" };
   if (/\bCREDITOS?\b/.test(normalized) && /\bREVENDAS?\b/.test(normalized) && /\b(TEM|TEMOS|SALDO|SALDOS|CONSULTA|CONSULTAR|VER|MOSTRA|MOSTRAR)\b/.test(normalized)) {
@@ -1574,6 +1593,7 @@ function buildMonitorMenuMessage() {
     "",
     "Outros comandos:",
     "rank revendas",
+    "renovacoes hoje",
     "gravar",
     "",
     "Responda com o numero ou comando.",
@@ -1589,6 +1609,9 @@ function isGeneratedMonitorMessage(text) {
     /^Status ADS\s+-/i.test(value) ||
     /^Creditos TDS\b/i.test(value) ||
     /^Credito TDS concluido\b/i.test(value) ||
+    /^Renovações\b/i.test(value) ||
+    /^Renovacoes\b/i.test(value) ||
+    /^Fechamento de renovações\b/i.test(value) ||
     /^Remocao de creditos concluida\b/i.test(value) ||
     /^Menu de revendas\b/i.test(value) ||
     /^Menu de revendas cancelado\b/i.test(value) ||
@@ -2324,6 +2347,18 @@ async function buildTdsRankMessage(date = getTheBestDate()) {
 
   if (items.length > 30) lines.push("", `+${items.length - 30} revendas com movimento.`);
   return lines.join("\n");
+}
+
+async function buildTdsRenewalsTodayMessage(username = config.tdsDailyRenewalReportUsername) {
+  const normalizedUsername = normalizeMonitorUsername(username || config.tdsDailyRenewalReportUsername);
+  const date = getTheBestDate();
+  const baseline = await getTdsDailyRenewalReportBaseline(date, normalizedUsername);
+  const snapshot = await getTdsDailyRenewalSnapshot(normalizedUsername, date, baseline);
+
+  return [
+    `Renovações ${snapshot.username}`,
+    `${formatCount(snapshot.renewedCount)}/${formatCount(snapshot.dueCount)} renovadas hoje.`,
+  ].join("\n");
 }
 
 async function buildCustomerLookupMessage(query) {

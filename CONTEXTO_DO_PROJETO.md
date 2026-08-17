@@ -247,6 +247,7 @@ Comandos principais:
 - `creditos 5 tdsrobson`
 - `revenda`
 - `rank revendas`
+- `renovacoes hoje`
 - `cliente 51999999999`
 - `gravar` para criar lembrete guiado
 
