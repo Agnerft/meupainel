@@ -31,6 +31,10 @@ const config = {
   theBestMaxPages: Number(process.env.THE_BEST_MAX_PAGES || 120),
   tdsCreditAlertThreshold: Number(process.env.TDS_CREDIT_ALERT_THRESHOLD || 30),
   tdsCreditAlertIntervalMs: Number(process.env.TDS_CREDIT_ALERT_INTERVAL_MS || 5 * 60 * 1000),
+  tdsDailyRenewalReportUsername: process.env.TDS_DAILY_RENEWAL_REPORT_USERNAME || "tdscr7milgols",
+  tdsDailyRenewalReportStartTime: process.env.TDS_DAILY_RENEWAL_REPORT_START_TIME || "08:00",
+  tdsDailyRenewalReportEndTime: process.env.TDS_DAILY_RENEWAL_REPORT_END_TIME || "23:40",
+  tdsDailyRenewalReportIntervalMs: Number(process.env.TDS_DAILY_RENEWAL_REPORT_INTERVAL_MS || 60 * 1000),
 };
 
 const THE_BEST_API_URL = "https://api.painel.best/user/logs/";
@@ -53,6 +57,8 @@ const MONITOR_FOLLOWUP_MESSAGE = [
 ].join("\n");
 const ONLY_REPLY_GROUP_NAME = "DEVERES";
 const TDS_CREDIT_ALERT_KEY_PREFIX = "tds-credit-alert";
+const TDS_DAILY_RENEWAL_REPORT_KEY_PREFIX = "tds-daily-renewal-report";
+const DAILY_REPORT_REDIS_TTL_SECONDS = 3 * 24 * 60 * 60;
 const ADMIN_COOKIE_NAME = "mega_admin";
 const MAX_ADS_IMPORT_BYTES = 12 * 1024 * 1024;
 const MAX_ADS_IMPORT_ROWS = 5000;
@@ -3408,6 +3414,222 @@ async function monitorTdsCreditThreshold() {
   }
 }
 
+async function monitorTdsDailyRenewalReport(now = new Date()) {
+  if (!config.theBestApiKey) return;
+
+  const username = normalizeMonitorUsername(config.tdsDailyRenewalReportUsername);
+  if (!username) return;
+
+  const startMinutes = parseTimeOfDayMinutes(config.tdsDailyRenewalReportStartTime);
+  const endMinutes = parseTimeOfDayMinutes(config.tdsDailyRenewalReportEndTime);
+  if (startMinutes == null || endMinutes == null) return;
+
+  const localNow = getTheBestLocalDateTime(now);
+  const currentMinutes = localNow.hours * 60 + localNow.minutes;
+  const schedule = [];
+
+  if (currentMinutes >= startMinutes && currentMinutes < endMinutes) {
+    schedule.push("start");
+  }
+  if (currentMinutes >= endMinutes) {
+    schedule.push("end");
+  }
+  if (!schedule.length) return;
+
+  const group = await findTdsCreditAlertGroup();
+  if (!group?.remoteJid) return;
+
+  for (const reportType of schedule) {
+    const key = buildTdsDailyRenewalReportKey(localNow.date, username, reportType);
+    if (await redis.exists(key)) continue;
+
+    const baseline = reportType === "end"
+      ? await getTdsDailyRenewalReportBaseline(localNow.date, username)
+      : null;
+    const snapshot = await getTdsDailyRenewalSnapshot(username, localNow.date, baseline);
+    const message = buildTdsDailyRenewalReportMessage(reportType, snapshot);
+    await sendWhatsAppText(config.evolutionInstanceName, group.remoteJid, message);
+    await saveOutboundMessage({
+      instanceName: config.evolutionInstanceName,
+      remoteJid: group.remoteJid,
+    }, message);
+
+    await redis.set(key, JSON.stringify({
+      username,
+      date: localNow.date,
+      reportType,
+      dueCount: snapshot.dueCount,
+      renewedCount: snapshot.renewedCount,
+      dueLineIds: snapshot.dueLineIds,
+      sentAt: new Date().toISOString(),
+    }), "EX", DAILY_REPORT_REDIS_TTL_SECONDS);
+  }
+}
+
+async function getTdsDailyRenewalSnapshot(username, date, baseline = null) {
+  const hasBaseline = Array.isArray(baseline?.dueLineIds);
+  const [dueLines, renewalLogs] = await Promise.all([
+    hasBaseline ? Promise.resolve(baseline.dueLineIds.map((id) => ({ id }))) : fetchTheBestLinesDueForReseller(username, date),
+    fetchTheBestRenewalLogsForReseller(username, date),
+  ]);
+
+  const dueLineIds = new Set(dueLines.map(getTheBestLineId).filter(Boolean));
+  const renewedDueLineIds = new Set();
+  const renewedLogLineIds = new Set();
+
+  for (const log of renewalLogs) {
+    const lineId = getTheBestLogLineId(log);
+    if (lineId) renewedLogLineIds.add(lineId);
+    if (lineId && dueLineIds.has(lineId)) renewedDueLineIds.add(lineId);
+  }
+
+  const dueCount = hasBaseline ? Number(baseline.dueCount || dueLines.length) : dueLines.length;
+  const fallbackRenewedCount = Math.max(renewedLogLineIds.size, renewalLogs.length);
+  const renewedCount = dueLineIds.size
+    ? renewedDueLineIds.size
+    : dueCount > 0 ? Math.min(fallbackRenewedCount, dueCount) : fallbackRenewedCount;
+
+  return {
+    username,
+    date,
+    dueCount,
+    renewedCount,
+    dueLineIds: [...dueLineIds],
+  };
+}
+
+async function getTdsDailyRenewalReportBaseline(date, username) {
+  const key = buildTdsDailyRenewalReportKey(date, username, "start");
+  const value = await redis.get(key);
+  if (!value) return null;
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed.dueLineIds) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchTheBestLinesDueForReseller(username, date) {
+  const lines = [];
+  const normalizedUsername = normalizeMonitorUsername(username);
+
+  for (let page = 1; page <= config.theBestMaxPages; page += 1) {
+    const path = `/lines/?page=${page}&per_page=100&user_username=${encodeURIComponent(normalizedUsername)}`;
+    const data = await fetchTheBestJson(path);
+    const results = Array.isArray(data.results) ? data.results : [];
+    if (!results.length) break;
+
+    for (const line of results) {
+      if (normalizeMonitorUsername(line.user_username) !== normalizedUsername) continue;
+      if (getTheBestUnixLocalDate(line.exp_date) === date) lines.push(line);
+    }
+
+    if (!data.next_page) break;
+  }
+
+  return lines;
+}
+
+async function fetchTheBestRenewalLogsForReseller(username, date) {
+  const logs = [];
+  const normalizedUsername = normalizeMonitorUsername(username);
+
+  for (let page = 1; page <= config.theBestMaxPages; page += 1) {
+    const url = `${THE_BEST_API_URL}?action=extend&page=${page}`;
+    const response = await fetch(url, {
+      headers: {
+        "Api-Key": config.theBestApiKey,
+        "User-Agent": "Mozilla/5.0",
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`The Best failed: ${response.status} ${body}`);
+    }
+
+    const data = await response.json();
+    const results = Array.isArray(data.results) ? data.results : [];
+    if (!results.length) break;
+
+    let stop = false;
+    for (const item of results) {
+      const itemDate = getTheBestItemDate(item.created_at);
+      if (!itemDate) continue;
+
+      if (itemDate === date && normalizeMonitorUsername(item.user_username) === normalizedUsername) {
+        logs.push(item);
+      } else if (itemDate < date) {
+        stop = true;
+        break;
+      }
+    }
+
+    if (stop || !data.next_page) break;
+  }
+
+  return logs;
+}
+
+function buildTdsDailyRenewalReportMessage(reportType, snapshot) {
+  const dueText = `${formatCount(snapshot.dueCount)} ${pluralize(snapshot.dueCount, "renovação", "renovações")}`;
+  if (reportType === "start") {
+    return [
+      `Renovações ${snapshot.username}`,
+      `Hoje tem ${dueText}.`,
+    ].join("\n");
+  }
+
+  const renewedText = formatCount(snapshot.renewedCount);
+  return [
+    `Fechamento de renovações ${snapshot.username}`,
+    `Foram renovadas ${renewedText} das ${formatCount(snapshot.dueCount)} de hoje.`,
+  ].join("\n");
+}
+
+function buildTdsDailyRenewalReportKey(date, username, reportType) {
+  return `${TDS_DAILY_RENEWAL_REPORT_KEY_PREFIX}:${date}:${username}:${reportType}`;
+}
+
+function parseTimeOfDayMinutes(value) {
+  const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function getTheBestLocalDateTime(now = new Date()) {
+  const local = new Date(now.getTime() + config.theBestTimezoneOffset * 60 * 60 * 1000);
+  return {
+    date: local.toISOString().slice(0, 10),
+    hours: local.getUTCHours(),
+    minutes: local.getUTCMinutes(),
+  };
+}
+
+function getTheBestUnixLocalDate(value) {
+  const seconds = Number(value || 0);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  const local = new Date(seconds * 1000 + config.theBestTimezoneOffset * 60 * 60 * 1000);
+  return Number.isNaN(local.getTime()) ? null : local.toISOString().slice(0, 10);
+}
+
+function getTheBestLineId(line) {
+  const id = line?.id ?? line?.line_id;
+  return id == null ? "" : String(id);
+}
+
+function getTheBestLogLineId(log) {
+  const id = log?.line_id ?? log?.line?.id ?? log?.line;
+  return id == null ? "" : String(id);
+}
+
 async function findTdsCreditAlertGroup() {
   const settings = await getAppSetting("monitor_group", {});
   const settingName = normalizeText(settings?.groupName || settings?.name || "");
@@ -3717,5 +3939,18 @@ if (Number.isFinite(config.tdsCreditAlertIntervalMs) && config.tdsCreditAlertInt
 
   monitorTdsCreditThreshold().catch((error) => {
     console.error("tds credit alert initial check failed", error);
+  });
+}
+
+if (Number.isFinite(config.tdsDailyRenewalReportIntervalMs) && config.tdsDailyRenewalReportIntervalMs > 0) {
+  const tdsDailyRenewalReportTimer = setInterval(() => {
+    monitorTdsDailyRenewalReport().catch((error) => {
+      console.error("tds daily renewal report failed", error);
+    });
+  }, config.tdsDailyRenewalReportIntervalMs);
+  tdsDailyRenewalReportTimer.unref?.();
+
+  monitorTdsDailyRenewalReport().catch((error) => {
+    console.error("tds daily renewal report initial check failed", error);
   });
 }

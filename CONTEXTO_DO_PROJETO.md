@@ -103,6 +103,10 @@ Criticas:
 - `THE_BEST_MAX_PAGES`
 - `TDS_CREDIT_ALERT_THRESHOLD`
 - `TDS_CREDIT_ALERT_INTERVAL_MS`
+- `TDS_DAILY_RENEWAL_REPORT_USERNAME`
+- `TDS_DAILY_RENEWAL_REPORT_START_TIME`
+- `TDS_DAILY_RENEWAL_REPORT_END_TIME`
+- `TDS_DAILY_RENEWAL_REPORT_INTERVAL_MS`
 
 Nao commitar `.env`, chaves ou tokens reais.
 
@@ -274,6 +278,7 @@ Limites atuais:
 - Menu guiado aceita quantidades predefinidas: 5, 10, 15, 20.
 - O backend monitora periodicamente revendas TDS e avisa no grupo `DEVERES` quando alguma ficar com `TDS_CREDIT_ALERT_THRESHOLD` creditos ou menos. O padrao e 30 creditos, checado a cada 300000 ms.
 - O aviso usa Redis para disparar uma vez por revenda enquanto ela estiver abaixo/igual ao limite. Quando a revenda volta acima do limite, a trava e removida e um novo aviso futuro pode acontecer.
+- O backend tambem envia um relatorio diario de renovacoes da revenda `TDS_DAILY_RENEWAL_REPORT_USERNAME`, por padrao `tdscr7milgols`, no grupo `DEVERES`. O primeiro aviso, por padrao `08:00`, informa quantas linhas vencem no dia. O fechamento, por padrao `23:40`, informa quantas dessas linhas tiveram log `extend` no dia. Redis evita duplicidade por data/tipo de aviso.
 
 ## Pontos de manutencao comuns
 
