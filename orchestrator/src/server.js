@@ -3476,20 +3476,13 @@ async function monitorTdsDailyRenewalReport(now = new Date()) {
 
   for (const reportType of schedule) {
     const key = buildTdsDailyRenewalReportKey(localNow.date, username, reportType);
-    if (await redis.exists(key)) continue;
 
     const baseline = reportType === "end"
       ? await getTdsDailyRenewalReportBaseline(localNow.date, username)
       : null;
     const snapshot = await getTdsDailyRenewalSnapshot(username, localNow.date, baseline);
     const message = buildTdsDailyRenewalReportMessage(reportType, snapshot);
-    await sendWhatsAppText(config.evolutionInstanceName, group.remoteJid, message);
-    await saveOutboundMessage({
-      instanceName: config.evolutionInstanceName,
-      remoteJid: group.remoteJid,
-    }, message);
-
-    await redis.set(key, JSON.stringify({
+    const reserved = await redis.set(key, JSON.stringify({
       username,
       date: localNow.date,
       reportType,
@@ -3497,7 +3490,14 @@ async function monitorTdsDailyRenewalReport(now = new Date()) {
       renewedCount: snapshot.renewedCount,
       dueLineIds: snapshot.dueLineIds,
       sentAt: new Date().toISOString(),
-    }), "EX", DAILY_REPORT_REDIS_TTL_SECONDS);
+    }), "EX", DAILY_REPORT_REDIS_TTL_SECONDS, "NX");
+    if (!reserved) continue;
+
+    await sendWhatsAppText(config.evolutionInstanceName, group.remoteJid, message);
+    await saveOutboundMessage({
+      instanceName: config.evolutionInstanceName,
+      remoteJid: group.remoteJid,
+    }, message);
   }
 }
 
