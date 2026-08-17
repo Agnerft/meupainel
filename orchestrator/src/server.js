@@ -1609,8 +1609,8 @@ function isGeneratedMonitorMessage(text) {
     /^Status ADS\s+-/i.test(value) ||
     /^Creditos TDS\b/i.test(value) ||
     /^Credito TDS concluido\b/i.test(value) ||
-    /^Renovações\b/i.test(value) ||
-    /^Renovacoes\b/i.test(value) ||
+    /^Renovações\s+tds[a-z0-9_]+\b/i.test(value) ||
+    /^Renovacoes\s+tds[a-z0-9_]+\b/i.test(value) ||
     /^Fechamento de renovações\b/i.test(value) ||
     /^Remocao de creditos concluida\b/i.test(value) ||
     /^Menu de revendas\b/i.test(value) ||
