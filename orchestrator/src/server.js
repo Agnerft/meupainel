@@ -27,6 +27,7 @@ const config = {
   adsTaxRate: Number(process.env.ADS_TAX_RATE || 12.15),
   theBestApiKey: process.env.THE_BEST_API_KEY,
   theBestPerUserApiKeys: parseJsonEnv(process.env.THE_BEST_PER_USER_API_KEYS_JSON, {}),
+  theBestRequestTimeoutMs: Number(process.env.THE_BEST_REQUEST_TIMEOUT_MS || 90000),
   theBestTimezoneOffset: Number(process.env.THE_BEST_TIMEZONE_OFFSET || -3),
   theBestMaxPages: Number(process.env.THE_BEST_MAX_PAGES || 120),
   tdsCreditAlertThreshold: Number(process.env.TDS_CREDIT_ALERT_THRESHOLD || 30),
@@ -3576,13 +3577,13 @@ async function fetchTheBestActionLogsForReseller(username, date, action) {
 
   for (let page = 1; page <= config.theBestMaxPages; page += 1) {
     const url = `${THE_BEST_API_URL}?action=${encodeURIComponent(action)}&page=${page}`;
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: {
         "Api-Key": config.theBestApiKey,
         "User-Agent": "Mozilla/5.0",
         Accept: "application/json",
       },
-    });
+    }, config.theBestRequestTimeoutMs);
 
     if (!response.ok) {
       const body = await response.text();
@@ -3725,7 +3726,7 @@ function normalizeReseller(item) {
 }
 
 async function transferTheBestCredits(resellerId, amount) {
-  const response = await fetch(`${THE_BEST_BASE_URL}/resellers/${encodeURIComponent(resellerId)}/transfer-credits/`, {
+  const response = await fetchWithTimeout(`${THE_BEST_BASE_URL}/resellers/${encodeURIComponent(resellerId)}/transfer-credits/`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -3734,7 +3735,7 @@ async function transferTheBestCredits(resellerId, amount) {
       Accept: "application/json",
     },
     body: JSON.stringify({ amount }),
-  });
+  }, config.theBestRequestTimeoutMs);
 
   const text = await response.text();
   let data;
@@ -3754,13 +3755,13 @@ async function transferTheBestCredits(resellerId, amount) {
 async function fetchTheBestJson(path) {
   if (!config.theBestApiKey) throw new Error("THE_BEST_API_KEY not configured");
 
-  const response = await fetch(`${THE_BEST_BASE_URL}${path}`, {
+  const response = await fetchWithTimeout(`${THE_BEST_BASE_URL}${path}`, {
     headers: {
       "Api-Key": config.theBestApiKey,
       Accept: "application/json",
       "User-Agent": "MegaApp-ADS/1.0",
     },
-  });
+  }, config.theBestRequestTimeoutMs);
 
   if (!response.ok) {
     const body = await response.text();
@@ -3827,13 +3828,13 @@ async function fetchTheBestStatsForKey(apiKey, date) {
 
     while (!stop && page <= config.theBestMaxPages) {
       const url = `${THE_BEST_API_URL}?action=${encodeURIComponent(action)}&page=${page}`;
-      const response = await fetch(url, {
+      const response = await fetchWithTimeout(url, {
         headers: {
           "Api-Key": apiKey,
           "User-Agent": "Mozilla/5.0",
           Accept: "application/json",
         },
-      });
+      }, config.theBestRequestTimeoutMs);
 
       if (!response.ok) {
         const body = await response.text();

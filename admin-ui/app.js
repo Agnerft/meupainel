@@ -51,6 +51,7 @@ const reviewConfirmButton = document.querySelector("#reviewConfirmButton");
 const reviewCancelButton = document.querySelector("#reviewCancelButton");
 const navItems = [...document.querySelectorAll(".navItem[href^='#']")];
 
+const DEFAULT_API_TIMEOUT_MS = 90000;
 let adsPreview = null;
 let pendingReviewResolve = null;
 const dispatchMessages = new Map();
@@ -112,7 +113,7 @@ updateActiveNav();
 
 async function api(path, options = {}) {
   const controller = new AbortController();
-  const timeoutMs = options.timeoutMs || 30000;
+  const timeoutMs = options.timeoutMs || DEFAULT_API_TIMEOUT_MS;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   const response = await fetch(`/api/${path}`, {
