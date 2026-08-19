@@ -31,6 +31,7 @@ const config = {
   theBestTimezoneOffset: Number(process.env.THE_BEST_TIMEZONE_OFFSET || -3),
   theBestMaxPages: Number(process.env.THE_BEST_MAX_PAGES || 120),
   tdsCreditAlertThreshold: Number(process.env.TDS_CREDIT_ALERT_THRESHOLD || 30),
+  tdsCreditCriticalAlertThreshold: Number(process.env.TDS_CREDIT_CRITICAL_ALERT_THRESHOLD || 15),
   tdsCreditAlertIntervalMs: Number(process.env.TDS_CREDIT_ALERT_INTERVAL_MS || 5 * 60 * 1000),
   tdsDailyRenewalReportUsername: process.env.TDS_DAILY_RENEWAL_REPORT_USERNAME || "tdscr7milgols",
   tdsDailyRenewalReportStartTime: process.env.TDS_DAILY_RENEWAL_REPORT_START_TIME || "08:00",
@@ -3415,40 +3416,64 @@ async function getTheBestStatsMap(date) {
 
 async function monitorTdsCreditThreshold() {
   if (!config.theBestApiKey) return;
-  if (!Number.isFinite(config.tdsCreditAlertThreshold) || config.tdsCreditAlertThreshold <= 0) return;
+
+  const alertThresholds = getTdsCreditAlertThresholds();
+  if (!alertThresholds.length) return;
 
   const group = await findTdsCreditAlertGroup();
   if (!group?.remoteJid) return;
 
   const resellers = await fetchTdsResellers();
-  const alerts = [];
+  const alertsByThreshold = new Map(alertThresholds.map((threshold) => [threshold, []]));
+  const crossedThresholdsByReseller = new Map();
 
   for (const reseller of resellers) {
-    const key = buildTdsCreditAlertKey(reseller);
-    if (reseller.credits <= config.tdsCreditAlertThreshold) {
-      const alreadyAlerted = await redis.exists(key);
-      if (!alreadyAlerted) alerts.push(reseller);
-    } else {
-      await redis.del(key);
+    const crossedThresholds = [];
+    const pendingThresholds = [];
+
+    for (const threshold of alertThresholds) {
+      const key = buildTdsCreditAlertKey(reseller, threshold);
+      if (reseller.credits <= threshold) {
+        crossedThresholds.push(threshold);
+        const alreadyAlerted = await redis.exists(key);
+        if (!alreadyAlerted) pendingThresholds.push(threshold);
+      } else {
+        await redis.del(key);
+      }
     }
+
+    if (!pendingThresholds.length) continue;
+
+    const thresholdToAlert = pendingThresholds[0];
+    alertsByThreshold.get(thresholdToAlert)?.push(reseller);
+    crossedThresholdsByReseller.set(reseller.id || normalizeMonitorUsername(reseller.username), crossedThresholds);
   }
 
-  if (!alerts.length) return;
+  const alertEntries = [...alertsByThreshold.entries()].filter(([, alerts]) => alerts.length);
+  if (!alertEntries.length) return;
 
-  const message = buildTdsCreditAlertMessage(alerts);
+  const message = alertEntries
+    .map(([threshold, alerts]) => buildTdsCreditAlertMessage(alerts, threshold))
+    .join("\n\n");
   await sendWhatsAppText(config.evolutionInstanceName, group.remoteJid, message);
   await saveOutboundMessage({
     instanceName: config.evolutionInstanceName,
     remoteJid: group.remoteJid,
   }, message);
 
-  for (const reseller of alerts) {
-    await redis.set(buildTdsCreditAlertKey(reseller), JSON.stringify({
-      username: reseller.username,
-      credits: reseller.credits,
-      threshold: config.tdsCreditAlertThreshold,
-      alertedAt: new Date().toISOString(),
-    }));
+  for (const [, alerts] of alertEntries) {
+    for (const reseller of alerts) {
+      const resellerKey = reseller.id || normalizeMonitorUsername(reseller.username);
+      const crossedThresholds = crossedThresholdsByReseller.get(resellerKey) || [];
+      for (const threshold of crossedThresholds) {
+        await redis.set(buildTdsCreditAlertKey(reseller, threshold), JSON.stringify({
+          username: reseller.username,
+          credits: reseller.credits,
+          threshold,
+          alertedAt: new Date().toISOString(),
+        }));
+      }
+    }
   }
 }
 
@@ -3688,14 +3713,23 @@ async function findTdsCreditAlertGroup() {
   return groups.find((group) => normalizeText(group.name).includes(ONLY_REPLY_GROUP_NAME)) || null;
 }
 
-function buildTdsCreditAlertKey(reseller) {
-  return `${TDS_CREDIT_ALERT_KEY_PREFIX}:${config.tdsCreditAlertThreshold}:${reseller.id || normalizeMonitorUsername(reseller.username)}`;
+function getTdsCreditAlertThresholds() {
+  return [...new Set([
+    config.tdsCreditCriticalAlertThreshold,
+    config.tdsCreditAlertThreshold,
+  ].filter((value) => Number.isFinite(value) && value > 0))]
+    .sort((a, b) => a - b);
 }
 
-function buildTdsCreditAlertMessage(resellers) {
+function buildTdsCreditAlertKey(reseller, threshold = config.tdsCreditAlertThreshold) {
+  return `${TDS_CREDIT_ALERT_KEY_PREFIX}:${threshold}:${reseller.id || normalizeMonitorUsername(reseller.username)}`;
+}
+
+function buildTdsCreditAlertMessage(resellers, threshold = config.tdsCreditAlertThreshold) {
+  const isCritical = threshold <= config.tdsCreditCriticalAlertThreshold;
   const lines = [
-    "Alerta de creditos TDS",
-    `Limite: ${formatDecimal(config.tdsCreditAlertThreshold)} creditos`,
+    isCritical ? "Alerta critico de creditos TDS" : "Alerta de creditos TDS",
+    `Limite: ${formatDecimal(threshold)} creditos`,
     "",
     ...resellers.map((reseller) => `${reseller.username}: ${formatDecimal(reseller.credits)} creditos`),
     "",
