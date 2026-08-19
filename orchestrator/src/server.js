@@ -2358,7 +2358,8 @@ async function buildTdsRenewalsTodayMessage(username = config.tdsDailyRenewalRep
 
   return [
     `Renovações ${snapshot.username}`,
-    `${formatCount(snapshot.renewedCount)}/${formatCount(snapshot.dueCount)} renovadas hoje.`,
+    `Renovadas hoje: ${formatCount(snapshot.renewedCount)}.`,
+    `Linhas vencendo hoje: ${formatCount(snapshot.dueCount)}.`,
     `Vendas hoje: ${formatCount(snapshot.salesCount)}.`,
   ].join("\n");
 }
@@ -3614,18 +3615,21 @@ async function fetchTheBestActionLogsForReseller(username, date, action) {
 }
 
 function buildTdsDailyRenewalReportMessage(reportType, snapshot) {
-  const dueText = `${formatCount(snapshot.dueCount)} ${pluralize(snapshot.dueCount, "renovação", "renovações")}`;
+  const dueText = `${formatCount(snapshot.dueCount)} ${pluralize(snapshot.dueCount, "linha vencendo", "linhas vencendo")}`;
   if (reportType === "start") {
     return [
       `Renovações ${snapshot.username}`,
       `Hoje tem ${dueText}.`,
+      `Renovadas hoje até agora: ${formatCount(snapshot.renewedCount)}.`,
+      `Vendas hoje: ${formatCount(snapshot.salesCount)}.`,
     ].join("\n");
   }
 
   const renewedText = formatCount(snapshot.renewedCount);
   return [
     `Fechamento de renovações ${snapshot.username}`,
-    `Foram renovadas ${renewedText} das ${formatCount(snapshot.dueCount)} de hoje.`,
+    `Foram renovadas ${renewedText}.`,
+    `Linhas que venciam hoje: ${formatCount(snapshot.dueCount)}.`,
     `Vendas hoje: ${formatCount(snapshot.salesCount)}.`,
   ].join("\n");
 }
