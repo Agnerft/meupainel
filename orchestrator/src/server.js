@@ -2614,7 +2614,7 @@ function parseAdsInput(rawInput) {
   const pixLine = lines.find((line) => /^pix\s*:/i.test(line)) || "";
   const currency = /\bUS\$|\bUSD/i.test(valueLine) ? "USD" : "BRL";
   const rawValue = parseMoney(valueLine);
-  const taxedValue = roundCurrencyUp(rawValue * (1 + config.adsTaxRate / 100));
+  const taxedValue = roundCurrency(rawValue * (1 + config.adsTaxRate / 100));
   const label = first.replace(/\s+/g, " ").trim();
   const customerName = nameLine.replace(/^nome\s*:\s*/i, "").trim();
   const pix = pixLine.replace(/^pix\s*:\s*/i, "").trim();
@@ -2697,7 +2697,7 @@ function isJrCampaign(label) {
 function buildJrParsed(jrItems, date) {
   const first = jrItems[0]?.parsed || {};
   const rawValue = sumCurrencyValues(jrItems.map((item) => item.parsed.rawValue));
-  const taxedValue = roundCurrencyUp(rawValue * (1 + config.adsTaxRate / 100));
+  const taxedValue = roundCurrency(rawValue * (1 + config.adsTaxRate / 100));
 
   return {
     label: `JR - ${formatShortDate(date)}`,
@@ -2712,7 +2712,7 @@ function buildJrParsed(jrItems, date) {
 
 function buildJrAdsMessage(jrItems, date) {
   const totalRaw = sumCurrencyValues(jrItems.map((item) => item.parsed.rawValue));
-  const totalTaxed = roundCurrencyUp(totalRaw * (1 + config.adsTaxRate / 100));
+  const totalTaxed = roundCurrency(totalRaw * (1 + config.adsTaxRate / 100));
   const currency = jrItems[0]?.parsed?.currency || "BRL";
   const label = `JR - ${formatShortDate(date)}`;
   const lines = [buildAdsIntro(label, date), "", label, ""];
@@ -2910,7 +2910,7 @@ async function parseAdsWorkbook(buffer, options = {}) {
     const budget = parseNumberCell(row[budgetKey]);
     const conversationsStarted = parseCountCell(row[conversationsKey]);
     const sourceValue = spentKey ? spent : budget;
-    const value = roundCurrencyUp(sourceCurrency === "USD" ? sourceValue * exchange.rate : sourceValue);
+    const value = roundCurrency(sourceCurrency === "USD" ? sourceValue * exchange.rate : sourceValue);
     const currency = "BRL";
     if (value <= 0) continue;
 
@@ -3205,21 +3205,38 @@ function mergeAdsMappings(defaults, overrides) {
 }
 
 function parseMoney(value) {
-  const match = String(value).match(/[-+]?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|[-+]?\d+(?:[.,]\d+)?/);
+  const match = String(value).match(/[-+]?\d+(?:[.,]\d+)*/);
   if (!match) return 0;
 
   const token = match[0];
   const lastComma = token.lastIndexOf(",");
   const lastDot = token.lastIndexOf(".");
-  const decimalSeparator = lastComma > lastDot ? "," : ".";
-  const normalized = token
-    .replace(new RegExp(`\\${decimalSeparator === "," ? "." : ","}`, "g"), "")
-    .replace(decimalSeparator, ".");
+  const separators = [...token.matchAll(/[.,]/g)].map((item) => item.index);
+  let normalized = token;
+
+  if (lastComma >= 0 && lastDot >= 0) {
+    const decimalSeparator = lastComma > lastDot ? "," : ".";
+    normalized = token
+      .replace(new RegExp(`\\${decimalSeparator === "," ? "." : ","}`, "g"), "")
+      .replace(decimalSeparator, ".");
+  } else if (separators.length > 1) {
+    const decimalSeparator = token[separators[separators.length - 1]];
+    normalized = token
+      .replace(new RegExp(`\\${decimalSeparator === "," ? "." : ","}`, "g"), "")
+      .replace(decimalSeparator, ".");
+  } else if (separators.length === 1) {
+    const separator = token[separators[0]];
+    const decimals = token.length - separators[0] - 1;
+    normalized = decimals === 3
+      ? token.replace(separator, "")
+      : token.replace(separator, ".");
+  }
+
   return Number(normalized) || 0;
 }
 
-function roundCurrencyUp(value) {
-  return Math.ceil((Number(value) - Number.EPSILON) * 100) / 100;
+function roundCurrency(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
 function formatMoney(value, currency = "BRL") {
