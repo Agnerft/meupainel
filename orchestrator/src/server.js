@@ -1,98 +1,37 @@
 import express from "express";
 import crypto from "crypto";
-import OpenAI from "openai";
-import pg from "pg";
-import Redis from "ioredis";
 import readXlsxFile from "read-excel-file/node";
+import {
+  config,
+  THE_BEST_API_URL,
+  THE_BEST_BASE_URL,
+  THE_BEST_ACTIONS,
+  REMINDER_STATE_TTL_SECONDS,
+  REMINDER_CHECK_INTERVAL_MS,
+  RESELLER_MENU_TTL_SECONDS,
+  MONITOR_FOLLOWUP_DELAY_MS,
+  MONITOR_FOLLOWUP_TTL_SECONDS,
+  MONITOR_FOLLOWUP_BODY,
+  MONITOR_FOLLOWUP_MESSAGE,
+  ONLY_REPLY_GROUP_NAME,
+  TDS_CREDIT_ALERT_KEY_PREFIX,
+  TDS_DAILY_RENEWAL_REPORT_KEY_PREFIX,
+  DAILY_REPORT_REDIS_TTL_SECONDS,
+  ADMIN_COOKIE_NAME,
+  MAX_ADS_IMPORT_BYTES,
+  MAX_ADS_IMPORT_ROWS,
+  RESELLER_MENU_AMOUNTS,
+  EXTERNAL_ADS_CAMPAIGNS,
+  DEFAULT_ADS_MAPPINGS,
+} from "./config.js";
+import { openai, db, redis, adsSendJobs, rateLimitBuckets, evolutionInstanceTokenCache } from "./clients.js";
+import { startJobs } from "./jobs/index.js";
 
 const app = express();
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "25mb" }));
 
 const port = Number(process.env.PORT || 3000);
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const db = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-const redis = new Redis(process.env.REDIS_URL);
-
-const config = {
-  model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-  audioTranscriptionModel: process.env.OPENAI_AUDIO_TRANSCRIPTION_MODEL || "gpt-4o-mini-transcribe",
-  evolutionBaseUrl: process.env.EVOLUTION_BASE_URL || "http://evolution-api:8080",
-  evolutionApiKey: process.env.EVOLUTION_API_KEY,
-  evolutionInstanceName: process.env.EVOLUTION_INSTANCE_NAME || "principal",
-  webhookSecret: process.env.ORCHESTRATOR_WEBHOOK_SECRET,
-  uiAdminToken: process.env.UI_ADMIN_TOKEN,
-  uiAdminUser: process.env.UI_ADMIN_USER || "agner",
-  uiAdminPassword: process.env.UI_ADMIN_PASSWORD,
-  adsTaxRate: Number(process.env.ADS_TAX_RATE || 12.15),
-  theBestApiKey: process.env.THE_BEST_API_KEY,
-  theBestPerUserApiKeys: parseJsonEnv(process.env.THE_BEST_PER_USER_API_KEYS_JSON, {}),
-  theBestRequestTimeoutMs: Number(process.env.THE_BEST_REQUEST_TIMEOUT_MS || 90000),
-  theBestTimezoneOffset: Number(process.env.THE_BEST_TIMEZONE_OFFSET || -3),
-  theBestMaxPages: Number(process.env.THE_BEST_MAX_PAGES || 120),
-  tdsCreditAlertThreshold: Number(process.env.TDS_CREDIT_ALERT_THRESHOLD || 30),
-  tdsCreditCriticalAlertThreshold: Number(process.env.TDS_CREDIT_CRITICAL_ALERT_THRESHOLD || 15),
-  tdsCreditAlertIntervalMs: Number(process.env.TDS_CREDIT_ALERT_INTERVAL_MS || 5 * 60 * 1000),
-  tdsDailyRenewalReportUsername: process.env.TDS_DAILY_RENEWAL_REPORT_USERNAME || "tdscr7milgols",
-  tdsDailyRenewalReportStartTime: process.env.TDS_DAILY_RENEWAL_REPORT_START_TIME || "08:00",
-  tdsDailyRenewalReportEndTime: process.env.TDS_DAILY_RENEWAL_REPORT_END_TIME || "23:40",
-  tdsDailyRenewalReportIntervalMs: Number(process.env.TDS_DAILY_RENEWAL_REPORT_INTERVAL_MS || 60 * 1000),
-};
-
-const THE_BEST_API_URL = "https://api.painel.best/user/logs/";
-const THE_BEST_BASE_URL = "https://api.painel.best";
-const THE_BEST_ACTIONS = ["new", "extend", "trial-conversion"];
-const adsSendJobs = new Map();
-const rateLimitBuckets = new Map();
-const evolutionInstanceTokenCache = new Map();
-const REMINDER_STATE_TTL_SECONDS = 6 * 60 * 60;
-const REMINDER_CHECK_INTERVAL_MS = 15 * 1000;
-const RESELLER_MENU_TTL_SECONDS = 10 * 60;
-const MONITOR_FOLLOWUP_DELAY_MS = 60 * 1000;
-const MONITOR_FOLLOWUP_TTL_SECONDS = 5 * 60;
-const MONITOR_FOLLOWUP_BODY = "__monitor_followup_question__";
-const MONITOR_FOLLOWUP_MESSAGE = [
-  "Quer algo mais?",
-  "",
-  "1 - Sim",
-  "2 - Nao",
-].join("\n");
-const ONLY_REPLY_GROUP_NAME = "DEVERES";
-const TDS_CREDIT_ALERT_KEY_PREFIX = "tds-credit-alert";
-const TDS_DAILY_RENEWAL_REPORT_KEY_PREFIX = "tds-daily-renewal-report";
-const DAILY_REPORT_REDIS_TTL_SECONDS = 3 * 24 * 60 * 60;
-const ADMIN_COOKIE_NAME = "mega_admin";
-const MAX_ADS_IMPORT_BYTES = 12 * 1024 * 1024;
-const MAX_ADS_IMPORT_ROWS = 5000;
-const RESELLER_MENU_AMOUNTS = [5, 10, 15, 20];
-const EXTERNAL_ADS_CAMPAIGNS = [
-  { key: "angelo", label: "ADS15 - ANGELO (2061)", aliases: ["ANGELO", "ADS15", "2061"] },
-  { key: "rafa", label: "ADS17 - RAFA NATV (1757)", aliases: ["RAFA", "NATV", "ADS17", "1757"] },
-];
-const DEFAULT_ADS_MAPPINGS = [
-  { nome_campanha: "ADS1 - KRONE (3545)", login_the_best: "Jonathan01" },
-  { nome_campanha: "ADS8 - ALLAN (5666)", login_the_best: "revendaallan" },
-  { nome_campanha: "ADS9 - DOUGLAS SANDI (9023)", login_the_best: "sandi01" },
-  { nome_campanha: "ADS11 - LUCAS MAYCA (7908)", login_the_best: "lucasmayca" },
-  { nome_campanha: "ADS13 - IGOR (1755)", login_the_best: "igor01" },
-  { nome_campanha: "ADS15 - ANGELO (2061)", login_the_best: "angelo" },
-  { nome_campanha: "ADS17 - RAFA NATV (1757)", login_the_best: "rafa" },
-  { nome_campanha: "ADS27 - ALEXANDRE JR (8841)", login_the_best: "Alexandre01" },
-  { nome_campanha: "ADS29 - GUILHERME JR (9889)", login_the_best: "Guimendes" },
-  { nome_campanha: "ADS31 - DAVID JR (1276)", login_the_best: "David01" },
-  { nome_campanha: "ADS32 - WILLIAM JR (6684)", login_the_best: "Williamfarias" },
-  { nome_campanha: "ADS34 - EVERALDO JR (8094)", login_the_best: "Junior" },
-  { nome_campanha: "ADS18 - EMERSON (1714)", login_the_best: "tdsfga" },
-  { nome_campanha: "ADS19 - ERICK (1910)", login_the_best: "tdsmalware" },
-  { nome_campanha: "ADS20 - HERON (1181)", login_the_best: "tdsdrvendasnights" },
-  { nome_campanha: "ADS21 - IGOREKEISY (1421)", login_the_best: "tdsbigseven" },
-  { nome_campanha: "ADS22 - JACQUES (5590)", login_the_best: "tdsthechosen" },
-  { nome_campanha: "ADS23 - JOAO (7378)", login_the_best: "tdspaqueta20vender" },
-  { nome_campanha: "ADS24 - JULIO (1718)", login_the_best: "tdstheflash" },
-  { nome_campanha: "ADS25 - ROBSON (7088)", login_the_best: "tdsrobson" },
-  { nome_campanha: "ADS26 - ROGERIO (1719)", login_the_best: "tdssmallville" },
-  { nome_campanha: "ADS37 - JACKSON (0083)", login_the_best: "tdsmessithebest" },
-];
 
 app.get("/health", async (_req, res) => {
   await db.query("SELECT 1");
@@ -838,7 +777,7 @@ app.post(["/webhooks/evolution", "/webhooks/evolution/:event"], rateLimit({ wind
     if (await handleMonitorGroupCommand(event)) return;
 
     const lockKey = `reply-lock:${event.remoteJid}`;
-    const lock = await redis.set(lockKey, "1", "EX", 8, "NX");
+    const lock = await redis.set(lockKey, "1", "EX", 30, "NX");
     if (!lock) return;
 
     const reply = await generateReply(event);
@@ -2050,7 +1989,7 @@ async function createReminder({ event, settings, body, remindAt }) {
   );
 }
 
-async function dispatchDueReminders() {
+export async function dispatchDueReminders() {
   await db.query(`
     UPDATE whatsapp_reminders
        SET status = 'pending'
@@ -2545,7 +2484,7 @@ async function sendEvolutionText(instanceName, remoteJid, text) {
   const number = remoteJid.endsWith("@s.whatsapp.net")
     ? remoteJid.replace("@s.whatsapp.net", "")
     : remoteJid;
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -2555,7 +2494,7 @@ async function sendEvolutionText(instanceName, remoteJid, text) {
       number,
       text,
     }),
-  });
+  }, 15000);
 
   if (!response.ok) {
     const body = await response.text();
@@ -3431,7 +3370,7 @@ async function getTheBestStatsMap(date) {
   return statsObjectToMap(stats);
 }
 
-async function monitorTdsCreditThreshold() {
+export async function monitorTdsCreditThreshold() {
   if (!config.theBestApiKey) return;
 
   const alertThresholds = getTdsCreditAlertThresholds();
@@ -3494,7 +3433,7 @@ async function monitorTdsCreditThreshold() {
   }
 }
 
-async function monitorTdsDailyRenewalReport(now = new Date()) {
+export async function monitorTdsDailyRenewalReport(now = new Date()) {
   if (!config.theBestApiKey) return;
 
   const username = normalizeMonitorUsername(config.tdsDailyRenewalReportUsername);
@@ -3945,15 +3884,6 @@ function statsObjectToMap(value) {
   return new Map(Object.entries(value || {}));
 }
 
-function parseJsonEnv(value, fallback) {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return fallback;
-  }
-}
-
 function getCookie(req, name) {
   const cookieHeader = String(req.headers.cookie || "");
   for (const part of cookieHeader.split(";")) {
@@ -4017,35 +3947,4 @@ app.listen(port, () => {
   console.log(`orchestrator listening on ${port}`);
 });
 
-const reminderTimer = setInterval(() => {
-  dispatchDueReminders().catch((error) => {
-    console.error("reminder dispatch failed", error);
-  });
-}, REMINDER_CHECK_INTERVAL_MS);
-reminderTimer.unref?.();
-
-if (Number.isFinite(config.tdsCreditAlertIntervalMs) && config.tdsCreditAlertIntervalMs > 0) {
-  const tdsCreditAlertTimer = setInterval(() => {
-    monitorTdsCreditThreshold().catch((error) => {
-      console.error("tds credit alert failed", error);
-    });
-  }, config.tdsCreditAlertIntervalMs);
-  tdsCreditAlertTimer.unref?.();
-
-  monitorTdsCreditThreshold().catch((error) => {
-    console.error("tds credit alert initial check failed", error);
-  });
-}
-
-if (Number.isFinite(config.tdsDailyRenewalReportIntervalMs) && config.tdsDailyRenewalReportIntervalMs > 0) {
-  const tdsDailyRenewalReportTimer = setInterval(() => {
-    monitorTdsDailyRenewalReport().catch((error) => {
-      console.error("tds daily renewal report failed", error);
-    });
-  }, config.tdsDailyRenewalReportIntervalMs);
-  tdsDailyRenewalReportTimer.unref?.();
-
-  monitorTdsDailyRenewalReport().catch((error) => {
-    console.error("tds daily renewal report initial check failed", error);
-  });
-}
+startJobs();
