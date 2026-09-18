@@ -1,0 +1,9 @@
+[Unit]
+Description=Enviar ranking das revendas ao WhatsApp (a cada 2 horas)
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock -n /run/send-hourly-rank.lock /bin/sh -c '/usr/bin/docker exec -i vps-whatsapp-stack-orchestrator-1 node - < /opt/vps-whatsapp-stack/scripts/send-hourly-rank.js'
+TimeoutStartSec=15min

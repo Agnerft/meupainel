@@ -1,0 +1,11 @@
+[Unit]
+Description=Ranking das revendas das 10h as 22h, a cada 2 horas
+
+[Timer]
+OnCalendar=*-*-* 10..22/2:00:00
+AccuracySec=5s
+Persistent=true
+Unit=send-hourly-rank.service
+
+[Install]
+WantedBy=timers.target

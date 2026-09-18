@@ -283,6 +283,28 @@ Limites atuais:
 - Os avisos usam Redis para disparar uma vez por revenda enquanto ela estiver abaixo/igual a cada limite. Quando a revenda volta acima daquele limite, a trava correspondente e removida e um novo aviso futuro pode acontecer.
 - O backend tambem envia um relatorio diario de renovacoes da revenda `TDS_DAILY_RENEWAL_REPORT_USERNAME`, por padrao `tdscr7milgols`, no grupo `DEVERES`. O primeiro aviso, por padrao `08:00`, informa quantas linhas vencem no dia. O fechamento, por padrao `23:40`, informa quantas dessas linhas tiveram log `extend` no dia. Redis evita duplicidade por data/tipo de aviso.
 
+## Rotina automatica: ranking de revendas no WhatsApp
+
+Roda direto na VPS via systemd, fora do `docker-compose.yml` (nao sobe/desce junto com a stack).
+
+Arquivos no repositorio:
+
+- `scripts/send-hourly-rank.js`: monta o ranking do dia (testes/vendas/renovacoes via The Best) e envia para o grupo `REV A MEIO`. Se falhar, avisa no grupo `DEVERES`.
+- `scripts/systemd/send-hourly-rank.service`: unidade `oneshot` que usa `flock` no lock `/run/send-hourly-rank.lock` e roda o script dentro do container `vps-whatsapp-stack-orchestrator-1` via `docker exec ... node - < script`.
+- `scripts/systemd/send-hourly-rank.timer`: dispara o service a cada 2 horas, das 10h as 22h (`OnCalendar=*-*-* 10..22/2:00:00`), com `Persistent=true` para recuperar execucao perdida se a VPS cair.
+
+Instalar/atualizar na VPS:
+
+```bash
+cp scripts/send-hourly-rank.js /opt/vps-whatsapp-stack/scripts/send-hourly-rank.js
+cp scripts/systemd/send-hourly-rank.service /etc/systemd/system/send-hourly-rank.service
+cp scripts/systemd/send-hourly-rank.timer /etc/systemd/system/send-hourly-rank.timer
+systemctl daemon-reload
+systemctl enable --now send-hourly-rank.timer
+```
+
+Esses arquivos nao sao copiados automaticamente pelo `scripts/deploy-vps.sh`; a copia acima precisa ser feita manualmente sempre que o script ou o agendamento mudar.
+
 ## Pontos de manutencao comuns
 
 Adicionar comando WhatsApp:
