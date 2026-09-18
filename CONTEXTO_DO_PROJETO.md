@@ -35,7 +35,18 @@ meupainel/
   orchestrator/
     package.json
     Dockerfile
-    src/server.js
+    src/
+      server.js
+      config.js
+      clients.js
+      jobs/
+        scheduler.js
+        index.js
+        reminders.js
+        tdsCreditAlert.js
+        tdsDailyRenewalReport.js
+        hourlyRank.js
+        adsRank.js
   admin-ui/
     Dockerfile
     nginx.conf
@@ -113,11 +124,17 @@ Nao commitar `.env`, chaves ou tokens reais.
 
 ## Backend: orchestrator
 
-Arquivo principal:
+Arquivo principal (rotas, webhooks, comandos do grupo, ADS, The Best):
 
 ```text
 orchestrator/src/server.js
 ```
+
+Infra compartilhada, ja extraida do `server.js`:
+
+- `orchestrator/src/config.js`: config vinda de env vars + constantes.
+- `orchestrator/src/clients.js`: instancias unicas de `db` (pg.Pool), `redis` (ioredis), `openai`, e os Maps em memoria (`adsSendJobs`, `rateLimitBuckets`, `evolutionInstanceTokenCache`).
+- `orchestrator/src/jobs/`: rotinas em segundo plano (ver secao "Rotinas automaticas" abaixo).
 
 Stack:
 
@@ -126,8 +143,9 @@ Stack:
 - `ioredis` para Redis.
 - `openai` para respostas de IA e transcricao de audio.
 - `read-excel-file` para importar planilhas ADS.
+- `node-cron` para agendar rotinas em `jobs/`.
 
-O backend concentra tudo em um arquivo grande. Antes de mexer, use `rg` por endpoint ou funcao.
+O `server.js` ainda concentra a maior parte da logica de dominio (webhooks, comandos do grupo, ADS, The Best, admin) num arquivo grande. Antes de mexer nele, use `rg` por endpoint ou funcao.
 
 Comandos uteis:
 
@@ -283,27 +301,28 @@ Limites atuais:
 - Os avisos usam Redis para disparar uma vez por revenda enquanto ela estiver abaixo/igual a cada limite. Quando a revenda volta acima daquele limite, a trava correspondente e removida e um novo aviso futuro pode acontecer.
 - O backend tambem envia um relatorio diario de renovacoes da revenda `TDS_DAILY_RENEWAL_REPORT_USERNAME`, por padrao `tdscr7milgols`, no grupo `DEVERES`. O primeiro aviso, por padrao `08:00`, informa quantas linhas vencem no dia. O fechamento, por padrao `23:40`, informa quantas dessas linhas tiveram log `extend` no dia. Redis evita duplicidade por data/tipo de aviso.
 
-## Rotina automatica: ranking de revendas no WhatsApp
+## Rotinas automaticas (`orchestrator/src/jobs/`)
 
-Roda direto na VPS via systemd, fora do `docker-compose.yml` (nao sobe/desce junto com a stack).
+Rodam dentro do proprio processo do `orchestrator` (mesmo container, mesmo `docker compose up -d --build`).
+Nao depende mais de systemd/SSH manual na VPS -- criar rotina nova e so codigo + `git push`.
 
-Arquivos no repositorio:
+Padrao de arquivo: cada rotina tem um `registerXJob()` exportado, chamado uma vez em `jobs/index.js` (`startJobs()`, invocado por `server.js` logo apos `app.listen()`). Duas formas de agendar:
 
-- `scripts/send-hourly-rank.js`: monta o ranking do dia (testes/vendas/renovacoes via The Best) e envia para o grupo `REV A MEIO`. Se falhar, avisa no grupo `DEVERES`.
-- `scripts/systemd/send-hourly-rank.service`: unidade `oneshot` que usa `flock` no lock `/run/send-hourly-rank.lock` e roda o script dentro do container `vps-whatsapp-stack-orchestrator-1` via `docker exec ... node - < script`.
-- `scripts/systemd/send-hourly-rank.timer`: dispara o service a cada 2 horas, das 10h as 22h (`OnCalendar=*-*-* 10..22/2:00:00`), com `Persistent=true` para recuperar execucao perdida se a VPS cair.
+- **Intervalo simples**: usa `registerInterval(fn, intervalMs, { runImmediately, label })` de `jobs/scheduler.js`. Exemplo: `jobs/reminders.js`, `jobs/tdsCreditAlert.js`, `jobs/tdsDailyRenewalReport.js` (essas tres so envolvem funcoes que ainda vivem em `server.js` -- `dispatchDueReminders`, `monitorTdsCreditThreshold`, `monitorTdsDailyRenewalReport` -- exportadas de la para o job importar).
+- **Horario fixo / cron**: usa `node-cron` direto (`cron.schedule("<expressao>", fn, { timezone: "America/Sao_Paulo" })`). Exemplo: `jobs/hourlyRank.js`, `jobs/adsRank.js`.
 
-Instalar/atualizar na VPS:
+Rotinas existentes que mandam mensagem no WhatsApp:
 
-```bash
-cp scripts/send-hourly-rank.js /opt/vps-whatsapp-stack/scripts/send-hourly-rank.js
-cp scripts/systemd/send-hourly-rank.service /etc/systemd/system/send-hourly-rank.service
-cp scripts/systemd/send-hourly-rank.timer /etc/systemd/system/send-hourly-rank.timer
-systemctl daemon-reload
-systemctl enable --now send-hourly-rank.timer
-```
+- **`jobs/hourlyRank.js`**: ranking das revendas TDS (testes/vendas/renovacoes via The Best), a cada 2 horas das 10h as 22h (`0 10,12,14,16,18,20,22 * * *`), enviado no grupo **`REV A MEIO`**. Trava por Redis (`lock:hourly-rank`) evita execucao dobrada. Se falhar, avisa no grupo `DEVERES`.
+- **`jobs/adsRank.js`**: ranking ADS puxado ao vivo de `https://controle.megaapp.tech/api/rank` (o novo painel externo do usuario, sem login necessario nesse endpoint), das 12h as 22h a cada 2 horas (`0 12,14,16,18,20,22 * * *`), enviado no grupo **`ADS`** (nao confundir com os varios grupos `ADS - <revenda>`). Mostra Testes/Vendas/Conversao de hoje por pessoa. Trava por Redis (`lock:ads-rank`). Se falhar, avisa no grupo `DEVERES`.
 
-Esses arquivos nao sao copiados automaticamente pelo `scripts/deploy-vps.sh`; a copia acima precisa ser feita manualmente sempre que o script ou o agendamento mudar.
+JIDs dos grupos usados por essas rotinas (uteis para nao precisar consultar a Evolution API de novo):
+
+- `ADS`: `120363427125777954@g.us`
+- `Deveres`: `120363407440063836@g.us`
+- `REV A MEIO`: `120363422602094872@g.us`
+
+Para adicionar uma rotina nova: criar um arquivo em `jobs/`, exportar um `registerXJob()`, e chama-lo dentro de `startJobs()` em `jobs/index.js`. Nao precisa de systemd, lock file manual nem SSH -- o deploy normal (`git push` na `main`) ja cobre.
 
 ## Pontos de manutencao comuns
 
@@ -387,8 +406,9 @@ Para testar backend local isolado, precisa ter `DATABASE_URL`, `REDIS_URL` e dem
 
 ## Resumo mental rapido
 
-- `admin-ui` e so frontend estatico com proxy.
+- `admin-ui` e so frontend estatico com proxy (o usuario parou de usar essa tela; hoje usa um painel externo, `controle.megaapp.tech`).
 - `orchestrator/src/server.js` e o cerebro: admin API, webhooks, WhatsApp, ADS, IA, The Best e lembretes.
+- `orchestrator/src/config.js` / `clients.js` / `jobs/` sao a infra compartilhada e as rotinas em segundo plano, ja extraidas do `server.js`.
 - PostgreSQL guarda historico/configuracoes/envios/lembretes.
 - Redis guarda cache, locks e estados temporarios.
 - Evolution API faz a ponte com WhatsApp.
