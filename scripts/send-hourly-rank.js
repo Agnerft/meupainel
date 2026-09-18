@@ -65,6 +65,7 @@ async function buildRank() {
   const names = [...new Set([
     ...(resellerData.results || []).map((item) => String(item.username || "")).filter((name) => name.toLowerCase().startsWith("tds")),
     "tdscr7milgols",
+    "tdsrevenda",
   ])];
   const stats = new Map(names.map((username) => [username.toLowerCase(), { username, tests: 0, sales: 0, renewals: 0 }]));
 
