@@ -35,19 +35,26 @@ async function buildAdsRankMessage() {
   const data = await response.json();
 
   const rows = Array.isArray(data.rows) ? [...data.rows].sort((a, b) => a.position - b.position) : [];
-  const lines = rows.map((row) => {
+
+  const formatRow = (pos, v, t, c, name) =>
+    `${String(pos).padStart(2, " ")} ${String(v).padStart(3, " ")} ${String(t).padStart(3, " ")} ${String(c).padStart(6, " ")} | ${name}`;
+  const header = formatRow("#", "V", "T", "C", "Revenda");
+  const tableRows = rows.map((row) => {
+    const pos = String(row.position).padStart(2, "0");
     const conversion = formatConversion(row.testsToday, row.salesToday);
-    return `${row.position}º *${row.name}* — 🧪 ${row.testsToday} | 💰 ${row.salesToday} | 📊 ${conversion}`;
+    return formatRow(pos, row.salesToday, row.testsToday, conversion, row.name);
   });
+  const table = ["```", header, ...tableRows, "```"].join("\n");
 
   const totals = data.totals || {};
   const totalConversion = formatConversion(totals.testsToday, totals.salesToday);
 
   return [
-    `*Ranking ADS - ${formatDate(data.date)}*`,
-    `🧪 ${totals.testsToday ?? 0} Testes | 💰 ${totals.salesToday ?? 0} Vendas | 📊 ${totalConversion} Conversão`,
+    `🏆 *Ranking ADS — ${formatDate(data.date)}*`,
     "",
-    ...lines,
+    `*V:* Vendas • *T:* Testes • *C:* Conversão (${totals.testsToday ?? 0} testes, ${totals.salesToday ?? 0} vendas, ${totalConversion})`,
+    "",
+    table,
   ].join("\n");
 }
 

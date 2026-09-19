@@ -103,9 +103,22 @@ async function buildRank() {
 
   const rank = [...stats.values()].filter((item) => item.tests + item.sales + item.renewals > 0)
     .sort((a, b) => b.sales - a.sales || b.tests - a.tests || b.renewals - a.renewals || a.username.localeCompare(b.username, "pt-BR", { numeric: true }));
-  const plural = (count, singular, pluralValue) => count === 1 ? singular : pluralValue;
-  const lines = rank.map((item, index) => `${index + 1}º *${item.username}* — 🧪 ${item.tests} ${plural(item.tests, "Teste", "Testes")} | 💰 ${item.sales} ${plural(item.sales, "Venda", "Vendas")} | 🔄 ${item.renewals} ${plural(item.renewals, "Renovação", "Renovações")}`);
-  return { count: rank.length, text: `*Ranking das revendas - ${today.split("-").reverse().join("/")}*\n\n${lines.join("\n")}` };
+
+  const pad3 = (value) => String(value).padStart(3, " ");
+  const rows = rank.map((item, index) => {
+    const pos = String(index + 1).padStart(2, "0");
+    return `${pos} ${pad3(item.sales)} ${pad3(item.tests)} ${pad3(item.renewals)} | ${item.username}`;
+  });
+  const table = ["```", " #   V   T   R | Revenda", ...rows, "```"].join("\n");
+  const text = [
+    `🏆 *Ranking das revendas — ${today.split("-").reverse().join("/")}*`,
+    "",
+    "*V:* Vendas • *T:* Testes • *R:* Renovações",
+    "",
+    table,
+  ].join("\n");
+
+  return { count: rank.length, text };
 }
 
 export async function runHourlyRank() {
